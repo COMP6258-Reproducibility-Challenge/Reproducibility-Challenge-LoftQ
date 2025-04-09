@@ -5,10 +5,10 @@
 #SBATCH --nodes=1
 #SBATCH -c 32
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=<YOUR_EMAIL>@soton.ac.uk ****
+#SBATCH --mail-user=<YOUR_EMAIL>@soton.ac.uk
 #SBATCH --time=01:00:00
 
 module load conda/py3-latest
-conda activate <YOUR_ENVIRONMENT_NAME> ****
+conda activate <YOUR_ENVIRONMENT_NAME>
 
 python loading.py
