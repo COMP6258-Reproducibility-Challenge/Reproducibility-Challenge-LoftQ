@@ -178,14 +178,14 @@ def quantize_and_save():
     lora_model_dir = os.path.join(args.save_dir, model_name, "loftq_init")
 
     lora_model.save_pretrained(lora_model_dir)
-    print_model(lora_model, "lora_model")
+    # print_model(lora_model, "lora_model")
 
     # remove lora adapters and save the backbone
     unwrap_model(base_model)
     base_model.save_pretrained(base_model_dir)
     tokenizer.save_pretrained(base_model_dir)
 
-    print_model(base_model, "base_model")
+    # print_model(base_model, "base_model")
     print("Done\n")
 
     # convert safetensor to bin
