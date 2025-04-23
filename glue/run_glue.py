@@ -72,7 +72,7 @@ task_to_metrics = {
     "stsb": "pearson",
 }
 
-device = torch.device(0)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DEBUG = False
 
 def set_seed(seed: int):
