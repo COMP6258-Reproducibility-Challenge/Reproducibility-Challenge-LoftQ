@@ -182,10 +182,13 @@ def create_peft_config(model_args):
     peft_config = LoraConfig(
         r=model_args.reduced_rank,
         lora_alpha=16,
-        target_modules=['query', 'key', 'value',
-                  'q_proj', 'k_proj', 'v_proj',
-                  'query_proj', 'key_proj', 'value_proj',
-                  'out_proj', 'dense', 'attention', 'fc1', 'fc2'],
+        target_modules = [
+            "query", "key", "value", "q_proj",
+            "k_proj", "v_proj", "query_proj",
+            "key_proj", "value_proj", "out_proj",
+            "dense", "output.dense", "self.query_proj",
+            "self.key_proj", "self.value_proj"
+        ],
         bias="none",
         task_type="SEQ_CLS",
         init_lora_weights=False
