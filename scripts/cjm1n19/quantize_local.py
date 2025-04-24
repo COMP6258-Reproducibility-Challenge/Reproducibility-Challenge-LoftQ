@@ -98,10 +98,13 @@ def quantize():
     )
 
     task_type = TaskType.SEQ_CLS
-    allow_name = ['query', 'key', 'value',
-                  'q_proj', 'k_proj', 'v_proj',
-                  'query_proj', 'key_proj', 'value_proj',
-                  'out_proj', 'dense', 'attention', 'fc1', 'fc2']
+    allow_name = [
+        "query", "key", "value", "q_proj",
+        "k_proj", "v_proj", "query_proj",
+        "key_proj", "value_proj", "out_proj",
+        "dense", "output.dense", "self.query_proj",
+        "self.key_proj", "self.value_proj"
+    ]
     block_name = ['pooler', 'classifier', 'LayerNorm']
 
     utils.replace_module(model,
