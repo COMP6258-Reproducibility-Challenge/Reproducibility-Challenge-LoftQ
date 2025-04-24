@@ -43,6 +43,7 @@ from transformers import (
     SchedulerType,
     default_data_collator,
     get_scheduler,
+    DebertaV2Tokenizer
 )
 from transformers.utils import check_min_version, get_full_repo_name#, send_example_telemetry
 from transformers.utils.versions import require_version
@@ -240,7 +241,6 @@ def parse_args():
 
 def main():
     args = parse_args()
-
     # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
     # information sent is the one passed as arguments along with your Python/PyTorch versions.
     # send_example_telemetry("run_glue_no_trainer", args)
@@ -344,7 +344,8 @@ def main():
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
     config = AutoConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
+    tokenizer = DebertaV2Tokenizer.from_pretrained("microsoft/deberta-v3-base")
+    # tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name_or_path,
         from_tf=bool(".ckpt" in args.model_name_or_path),
@@ -590,10 +591,10 @@ def main():
                     completed_steps += 1
                     continue
 
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
-                batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
-                outputs = model(**batch)
-                loss = outputs.loss
+            # with torch.autocast(device_type='cuda', dtype=torch.float16):
+            batch = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
+            outputs = model(**batch)
+            loss = outputs.loss
             # We keep track of the loss at each epoch
             if args.with_tracking:
                 total_loss += loss.detach().float()
