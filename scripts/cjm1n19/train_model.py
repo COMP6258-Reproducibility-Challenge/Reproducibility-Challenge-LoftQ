@@ -123,64 +123,72 @@ def smart_tokenizer_and_embedding_resize(
         input_embeddings[-num_new_tokens:] = input_embeddings_avg
         output_embeddings[-num_new_tokens:] = output_embeddings_avg
 
-
-def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
-    """Tokenize a list of strings."""
-    tokenized_list = [
-        tokenizer(
-            text,
-            return_tensors="pt",
-            padding="longest",
-            max_length=tokenizer.model_max_length,
-            truncation=True,
-        )
-        for text in strings
-    ]
-    input_ids = labels = [tokenized.input_ids[0] for tokenized in tokenized_list]
-    input_ids_lens = labels_lens = [
-        tokenized.input_ids.ne(tokenizer.pad_token_id).sum().item() for tokenized in tokenized_list
-    ]
-    return dict(
-        input_ids=input_ids,
-        labels=labels,
-        input_ids_lens=input_ids_lens,
-        labels_lens=labels_lens,
-    )
-
-
-def preprocess(sources: Sequence[str], targets: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
+def preprocess(sources: Sequence[str], targets: Sequence[str], labels: Sequence[int], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
     """Preprocess the data by tokenizing."""
-    # sources are questions, and targets are answers
-    examples = [s + t for s, t in zip(sources, targets)]
-    examples_tokenized, sources_tokenized = [_tokenize_fn(strings, tokenizer) for strings in (examples, sources)]
-    input_ids = examples_tokenized["input_ids"]
-    labels = copy.deepcopy(input_ids)
-    for label, source_len in zip(labels, sources_tokenized["input_ids_lens"]):
-        label[:source_len] = IGNORE_INDEX
-
-    return dict(input_ids=input_ids, labels=labels)
-
-
+    inputs = tokenizer(
+        sources,
+        text_pair=targets,
+        padding="max_length",
+        truncation=True,
+        max_length=tokenizer.model_max_length,
+        return_tensors="pt"
+    )
+    
+    inputs["labels"] = torch.tensor(labels)
+    
+    return inputs
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
     def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer):
         super(SupervisedDataset, self).__init__()
         logging.warning("Formatting inputs...")
-        sources, targets = tuple([d[k] for d in raw_data] for k in ["premise", "hypothesis"])
+        sources, targets, labels = tuple([d[k] for d in raw_data] for k in ["premise", "hypothesis", "label"])
+    
+        # Get unique labels instead of all labels
+        self.label_list = sorted(list(set(labels)))
+        self.num_labels = len(self.label_list)
+        
+        # Create a mapping from label values to indices
+        self.label_to_id = {label: i for i, label in enumerate(self.label_list)}
+        
+        # Convert string/text labels to indices if needed
+        numeric_labels = [self.label_to_id[label] for label in labels]
 
         logging.warning("Tokenizing inputs... This may take some time...")
-        data_dict = preprocess(sources, targets, tokenizer)
-
-        self.input_ids = data_dict["input_ids"]
-        self.labels = data_dict["labels"]
+        self.inputs = preprocess(sources, targets, numeric_labels, tokenizer)
+        print(f"Number of unique labels: {self.num_labels}")
 
     def __len__(self):
-        return len(self.input_ids)
+        return len(self.inputs["input_ids"])
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        return dict(input_ids=self.input_ids[i], labels=self.labels[i])
+        return {k: v[i] for k, v in self.inputs.items()}
+    
+    def get_labels(self):
+        return self.label_list
+    
+    def get_num_labels(self):
+        return self.num_labels
 
+
+# @dataclass
+# class DataCollatorForSupervisedDataset(object):
+#     """Collate examples for supervised fine-tuning."""
+
+#     tokenizer: transformers.PreTrainedTokenizer
+
+#     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+#         input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
+#         input_ids = torch.nn.utils.rnn.pad_sequence(
+#             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+#         )
+#         labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
+#         return dict(
+#             input_ids=input_ids,
+#             labels=labels,
+#             attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+#         )
 
 @dataclass
 class DataCollatorForSupervisedDataset(object):
@@ -189,16 +197,39 @@ class DataCollatorForSupervisedDataset(object):
     tokenizer: transformers.PreTrainedTokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
-        input_ids = torch.nn.utils.rnn.pad_sequence(
-            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
-        )
-        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
-        return dict(
-            input_ids=input_ids,
-            labels=labels,
-            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
-        )
+        # Create a batch by stacking the individual instances
+        batch = {}
+        
+        # For classification tasks, labels are already integer indices
+        for key in instances[0].keys():
+            if key == "labels":
+                # For classification, labels should already be tensors of shape (batch_size,)
+                batch[key] = torch.stack([instance[key] for instance in instances])
+            elif key == "input_ids" or key == "attention_mask":
+                # These might need padding if not already padded
+                if isinstance(instances[0][key], torch.Tensor) and instances[0][key].dim() == 1:
+                    # If they're 1D tensors, pad them
+                    batch[key] = torch.nn.utils.rnn.pad_sequence(
+                        [instance[key] for instance in instances], 
+                        batch_first=True, 
+                        padding_value=self.tokenizer.pad_token_id if key == "input_ids" else 0
+                    )
+                else:
+                    # If they're already 2D tensors (pre-padded), just stack them
+                    batch[key] = torch.stack([instance[key] for instance in instances])
+            else:
+                # For any other keys
+                values = [instance[key] for instance in instances]
+                if isinstance(values[0], torch.Tensor):
+                    batch[key] = torch.stack(values)
+                else:
+                    batch[key] = values
+                    
+        # Ensure attention mask is set correctly
+        if "attention_mask" not in batch:
+            batch["attention_mask"] = batch["input_ids"].ne(self.tokenizer.pad_token_id)
+            
+        return batch
 
 
 def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args) -> Dict:
@@ -207,14 +238,14 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, dat
     dataset = load_dataset(data_args.data_name, "mnli")
     train_set = dataset['train']
     train_dataset = SupervisedDataset(raw_data=train_set, tokenizer=tokenizer)
-    data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
+    # data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
+    data_collator = transformers.DataCollatorWithPadding(tokenizer)
     return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
 
     
 def load_model(training_args):
     model_path = "./quantized_model"
     config = transformers.AutoConfig.from_pretrained(model_path)
-
     model = transformers.AutoModelForSequenceClassification.from_config(config)
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_path)
     tokenizer.model_max_length=training_args.model_max_length
@@ -253,6 +284,7 @@ def train():
     )
 
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+    model.config.num_labels = data_module['train_dataset'].get_num_labels()
     training_args.output_dir = os.path.join(
         training_args.output_dir,
         training_args.expt_name,
