@@ -298,7 +298,10 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_dataset):
     )
 
     print("Training model...")
-    trainer.train()
+    if (not training_args.resume_from_checkpoint is None):
+        trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
+    else:
+        trainer.train()
 
     # Step 10: Evaluate on validation sets
     print("Evaluating model...")
