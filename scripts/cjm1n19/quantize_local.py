@@ -76,13 +76,6 @@ def quantize():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments))
     model_args, data_args = parser.parse_args_into_dataclasses()
 
-    # model = PeftModel.from_pretrained(
-    #         model,
-    #         model_args.adapter_name_or_path,
-    #         is_trainable=True,
-    #         token=model_args.token,
-    # )
-
     original_model = transformers.AutoModelForSequenceClassification.from_pretrained(
         model_args.model_name_or_path,
         token=model_args.token,
