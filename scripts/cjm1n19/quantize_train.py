@@ -134,6 +134,10 @@ class TrainingArguments(transformers.TrainingArguments):
         default="default",
         metadata={"help": "Experiment name"},
     )
+    train_small: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Experiment name"},
+    )
     
 def load_raw_dataset(dataset_name, task_name):
     logging.warning("Loading raw dataset")
@@ -274,6 +278,28 @@ def compute_metrics(eval_pred):
     predictions = np.argmax(predictions, axis=1)
     return metric.compute(predictions=predictions, references=labels)
 
+def create_reduced_dataset(dataset, num_examples=1000, seed=42):
+    """Create a smaller subset of the dataset for quick testing."""
+    # Set seed for reproducibility
+    import numpy as np
+    np.random.seed(seed)
+    
+    # Get a balanced subset
+    indices = []
+    for label in [0, 1, 2]:  # MNLI has 3 classes
+        label_indices = [i for i, l in enumerate(dataset["label"]) if l == label]
+        selected = np.random.choice(label_indices, min(num_examples // 3, len(label_indices)), replace=False)
+        indices.extend(selected)
+    
+    # Shuffle the indices
+    np.random.shuffle(indices)
+    
+    # Create the reduced dataset
+    reduced_dataset = dataset.select(indices)
+    print(f"Created reduced dataset with {len(reduced_dataset)} examples")
+    
+    return reduced_dataset
+
 def train(model, tokenizer, model_args, data_args, training_args, raw_dataset):
     logging.warning("Preparing to train model")
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -361,7 +387,12 @@ if __name__ == "__main__":
         else:
             param.requires_grad = False
 
-    train(model, tokenizer, model_args, data_args, training_args, raw_data)
+    if not training_args.train_small is None and training_args.train_small == True:
+        dataset = load_dataset("glue", "mnli")
+        train_small = create_reduced_dataset(dataset["train"], num_examples=1000)
+        val_small = create_reduced_dataset(dataset["validation_matched"], num_examples=300)
+    else:
+        train(model, tokenizer, model_args, data_args, training_args, raw_data)
     # # print("\nApplying PEFT LoRA implementation...")
     # peft_model = transformers.AutoModelForSequenceClassification.from_pretrained(
     #     model_args.model_name_or_path,
