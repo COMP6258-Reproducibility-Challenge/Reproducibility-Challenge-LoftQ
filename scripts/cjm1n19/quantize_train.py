@@ -18,8 +18,8 @@ import transformers
 from peft import PeftModel, LoftQConfig, LoraConfig, TaskType, get_peft_model
 from dataclasses import dataclass, field
 from datasets import load_dataset
-
 import utils
+import loftq_custom
 
 task_to_keys = {
     "cola": ("sentence", None),
@@ -212,15 +212,23 @@ def load_base_model(model_args, num_labels):
 
 def quantize_model(model, model_args, allow_name, block_name):
     logging.warning("Quantizing model, this may take a while")
-    utils.replace_module(model,
-            allow_name=allow_name,
-            block_name=block_name,
-            reduced_rank=model_args.reduced_rank,
-            decomposition=model_args.decompose,
-            quant_method=model_args.quant_method,
-            int_bit=model_args.int_bit,
-            args=model_args,
-        )
+    # utils.replace_module(model,
+    #         allow_name=allow_name,
+    #         block_name=block_name,
+    #         reduced_rank=model_args.reduced_rank,
+    #         decomposition=model_args.decompose,
+    #         quant_method=model_args.quant_method,
+    #         int_bit=model_args.int_bit,
+    #         args=model_args,
+    #     )
+    
+    model = loftq_custom.convert_linear_layer(
+        model,
+        quantization_bits=model_args.int_bit,
+        target_modules=allow_name,
+        rank=model_args.reduced_rank,
+        quantization_method=model_args.quant_method,
+    )
     return model
 
 def save_quantized_model(model, tokenizer, save_path, model_args):
@@ -365,6 +373,29 @@ def preprocess_function(examples):
         max_length=256
     )
     
+def test_layer_quantization(model):
+    """Test the quantization of each layer independently."""
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.Linear) and any(attr_str in name for attr_str in ['query', 'key', 'value']):
+            print(f"Testing quantization for {name}")
+            
+            # Save original weights
+            original_weight = module.weight.clone()
+            
+            # Apply quantization to this layer only
+            reduced_rank = 8  # Use a small rank for testing
+            L, R = utils.low_rank_decomposition(original_weight, reduced_rank)
+            quant_w = utils.weight_quant_fn(original_weight - L @ R, num_bits=4, quant_method='uniform')
+            
+            # Check error
+            error = torch.norm(original_weight - quant_w - L @ R).item()
+            print(f"  Quantization error: {error:.4f}")
+            
+            # Check weight statistics
+            print(f"  Original weight range: [{original_weight.min().item():.4f}, {original_weight.max().item():.4f}]")
+            print(f"  Quantized weight range: [{quant_w.min().item():.4f}, {quant_w.max().item():.4f}]")
+            print(f"  Low-rank component range: [{(L @ R).min().item():.4f}, {(L @ R).max().item():.4f}]")
+            
 if __name__ == "__main__":
     parser = transformers.HfArgumentParser((BaseArguments, ModelArguments, DataArguments, TrainingArguments))
     base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -379,53 +410,54 @@ if __name__ == "__main__":
         save_quant_config(base_args.save_dir, model_args, target_modules)
     else:
         model, tokenizer, target_modules, blocked_modules = load_quantized_model(model_args, base_args.save_dir)
+        # test_layer_quantization(model)
+    
+    quant_total = count_total_parameters(model)
+    quant_trainable = count_trainable_parameters(model)
+    print(f"PEFT LoRA - Total parameters: {quant_total:,}")
+    print(f"PEFT LoRA - Trainable parameters: {quant_trainable:,} ({100*quant_trainable/quant_total:.2f}%)")
     
     for name, param in model.named_parameters():
-        print(name)
-        if 'lora' in name or 'left' in name or 'right' in name:
-            param.requires_grad = True
-        else:
+    # Keep trainable: 1) all LoRA adapters and 2) non-LoRA classifier parameters
+        if "lora" not in name.lower() and "classifier" not in name.lower():
             param.requires_grad = False
+        else:
+            param.requires_grad = True
 
-    if not training_args.train_small is None and training_args.train_small == True:
-        dataset = load_dataset("glue", "mnli")
-        train_small = create_reduced_dataset(dataset["train"], num_examples=1000)
-        val_small = create_reduced_dataset(dataset["validation_matched"], num_examples=300)
-    else:
-        train(model, tokenizer, model_args, data_args, training_args, raw_data)
-    # # print("\nApplying PEFT LoRA implementation...")
-    # peft_model = transformers.AutoModelForSequenceClassification.from_pretrained(
-    #     model_args.model_name_or_path,
-    #     num_labels=3,
-    # )
+    # if not training_args.train_small is None and training_args.train_small == True:
+    #     dataset = load_dataset("glue", "mnli")
+    #     train_small = create_reduced_dataset(dataset["train"], num_examples=100)
+    #     val_small = create_reduced_dataset(dataset["validation_matched"], num_examples=3)
+    #     val_mm_small = create_reduced_dataset(dataset["validation_mismatched"], num_examples=3)
+    #     raw_data['train'] = train_small
+    #     raw_data['validation_matched'] = val_small
+    #     raw_data['validation_mismatched'] = val_mm_small
+    #     train(model, tokenizer, model_args, data_args, training_args, raw_data)
+    # else:
+    #     train(model, tokenizer, model_args, data_args, training_args, raw_data)
     
-    # peft_config = LoraConfig(
-    #     task_type=TaskType.SEQ_CLS,
-    #     inference_mode=False,
-    #     r=model_args.reduced_rank,  # Match rank with LoftQ
-    #     lora_alpha=model_args.reduced_rank,  # Common setting is alpha=r
-    #     lora_dropout=0.1,
-    #     # Target modules similar to what replace_module targets
-    #     target_modules=[
-    #         "query_proj", 
-    #         "key_proj", 
-    #         "value_proj", 
-    #         "dense", 
-    #         "output.dense",
-    #         "attention.self.query",
-    #         "attention.self.key",
-    #         "attention.self.value",
-    #         "intermediate.dense"
-    #     ]
-    # )
+    print("\nApplying PEFT LoRA implementation...")
+    peft_model = transformers.AutoModelForSequenceClassification.from_pretrained(
+        model_args.model_name_or_path,
+        num_labels=3,
+    )
+    loftq_config = LoftQConfig(loftq_bits=model_args.int_bit, loftq_iter=model_args.num_iter)
+    peft_config = LoraConfig(
+        task_type=TaskType.SEQ_CLS,
+        inference_mode=False,
+        r=model_args.reduced_rank,  # Match rank with LoftQ
+        lora_alpha=model_args.reduced_rank,  # Common setting is alpha=r
+        init_lora_weights="loftq",
+        loftq_config=loftq_config,
+    )
 
-    # # Apply PEFT configuration
-    # peft_model = get_peft_model(peft_model, peft_config)
+    # Apply PEFT configuration
+    peft_model = get_peft_model(peft_model, peft_config)
     
-    # peft_total = count_total_parameters(peft_model)
-    # peft_trainable = count_trainable_parameters(peft_model)
-    # print(f"PEFT LoRA - Total parameters: {peft_total:,}")
-    # print(f"PEFT LoRA - Trainable parameters: {peft_trainable:,} ({100*peft_trainable/peft_total:.2f}%)")
+    peft_total = count_total_parameters(peft_model)
+    peft_trainable = count_trainable_parameters(peft_model)
+    print(f"PEFT LoRA - Total parameters: {peft_total:,}")
+    print(f"PEFT LoRA - Trainable parameters: {peft_trainable:,} ({100*peft_trainable/peft_total:.2f}%)")
     
     # train(peft_model, tokenizer, model_args, data_args, training_args)
     
