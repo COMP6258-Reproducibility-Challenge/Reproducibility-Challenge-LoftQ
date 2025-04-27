@@ -225,7 +225,7 @@ def quantize_model(model, model_args, allow_name, block_name):
     model = loftq_custom.convert_linear_layer(
         model,
         quantization_bits=model_args.int_bit,
-        target_modules=allow_name,
+        # target_modules=allow_name,
         rank=model_args.reduced_rank,
         quantization_method=model_args.quant_method,
         target_modules=["query_proj", "key_proj", "value_proj", "dense"]
