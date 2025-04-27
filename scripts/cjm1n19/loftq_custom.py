@@ -1,5 +1,6 @@
 import math
-from typing import List, Union
+import sys
+from typing import Any, List, Union
 
 import torch
 from torch import nn
@@ -9,7 +10,7 @@ import logging
 
 compute_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class LoraLayer(nn.Module):
+class LoraLinearLayer(nn.Module):
     def __init__(
         self,
         base_layer: nn.Linear,
@@ -19,11 +20,12 @@ class LoraLayer(nn.Module):
         quantization_method: str = "uniform"
     ):
         super().__init__()
+        self.base_layer = base_layer
         
         in_features = base_layer.in_features
         out_features = base_layer.out_features
         
-        W_initial = base_layer.weight.data
+        W_initial = base_layer.weight.data.clone()
         self.has_bias = base_layer.bias is not None
         if self.has_bias:
             self.bias = nn.Parameter(base_layer.bias.data.clone())
@@ -32,7 +34,7 @@ class LoraLayer(nn.Module):
             
         Q, A, B = quantize_layer(W_initial, quantization_bits, reduced_rank, num_iters, quantization_method)
         
-        self.register_buffer('weight', Q)
+        # self.register_buffer('weight', Q)
         
         self.lora_A = nn.Linear(in_features, reduced_rank, bias=False)
         self.lora_B = nn.Linear(reduced_rank, out_features, bias=False)
@@ -40,10 +42,11 @@ class LoraLayer(nn.Module):
         self.lora_A.weight.data = A
         self.lora_B.weight.data = B
         
-        base_layer.weight.data = Q
+        self.base_layer.weight.data = Q
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out = nn.functional.linear(x, self.weight, self.bias)
+    def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        out = self.base_layer(x, *args, **kwargs)
+        # out = nn.functional.linear(x, self.weight, self.bias)
         lora = self.lora_B(self.lora_A(x))
         return out + lora
     
@@ -226,7 +229,7 @@ def convert_linear_layer(
     num_iters: int = 5,
     quantization_method: str = "uniform",
     target_modules: List[str] = ['all-linear'],
-    excluded_moduls: List[str] = ['classifier', 'pooler']
+    excluded_moduls: List[str] = ['classifier']
 ) -> nn.Module:
     all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
     for name, module in model.named_children():
@@ -239,7 +242,7 @@ def convert_linear_layer(
             setattr(
                 model,
                 name,
-                LoraLayer(
+                LoraLinearLayer(
                     module,
                     quantization_bits=quantization_bits,
                     reduced_rank=rank,
