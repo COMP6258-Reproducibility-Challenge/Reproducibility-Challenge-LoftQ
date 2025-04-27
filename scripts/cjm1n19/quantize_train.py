@@ -228,6 +228,7 @@ def quantize_model(model, model_args, allow_name, block_name):
         target_modules=allow_name,
         rank=model_args.reduced_rank,
         quantization_method=model_args.quant_method,
+        target_modules=["query_proj", "key_proj", "value_proj", "dense"]
     )
     return model
 
@@ -412,17 +413,17 @@ if __name__ == "__main__":
         model, tokenizer, target_modules, blocked_modules = load_quantized_model(model_args, base_args.save_dir)
         # test_layer_quantization(model)
     
-    quant_total = count_total_parameters(model)
-    quant_trainable = count_trainable_parameters(model)
-    print(f"PEFT LoRA - Total parameters: {quant_total:,}")
-    print(f"PEFT LoRA - Trainable parameters: {quant_trainable:,} ({100*quant_trainable/quant_total:.2f}%)")
-    
     for name, param in model.named_parameters():
     # Keep trainable: 1) all LoRA adapters and 2) non-LoRA classifier parameters
-        if "lora" not in name.lower() and "classifier" not in name.lower():
+        if "lora" not in name.lower() and "classifier" not in name.lower() and "pooler" not in name.lower():
             param.requires_grad = False
         else:
             param.requires_grad = True
+
+    quant_total = count_total_parameters(model)
+    quant_trainable = count_trainable_parameters(model)
+    print(f"LoftQ - Total parameters: {quant_total:,}")
+    print(f"LoftQ - Trainable parameters: {quant_trainable:,} ({100*quant_trainable/quant_total:.2f}%)")
 
     # if not training_args.train_small is None and training_args.train_small == True:
     #     dataset = load_dataset("glue", "mnli")
@@ -449,6 +450,7 @@ if __name__ == "__main__":
         lora_alpha=model_args.reduced_rank,  # Common setting is alpha=r
         init_lora_weights="loftq",
         loftq_config=loftq_config,
+        target_modules=["query_proj", "key_proj", "value_proj", "dense"]
     )
 
     # Apply PEFT configuration
