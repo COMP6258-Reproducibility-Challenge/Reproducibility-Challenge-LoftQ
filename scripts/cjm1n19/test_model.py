@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from datasets import load_dataset
 
 import utils
+from loftq_custom import LoraLinearLayer
+from safetensors.torch import load_file
 
 task_to_keys = {
     "cola": ("sentence", None),
@@ -137,7 +139,7 @@ class TrainingArguments(transformers.TrainingArguments):
     )
     
 def load_raw_dataset(dataset_name, task_name):
-    logging.warning("Loading raw dataset")
+    logger.warning("Loading raw dataset")
     raw_data = load_dataset(dataset_name, task_name)
     train_set = raw_data["train"]
     labels = set([entry['label'] for entry in train_set])
@@ -170,33 +172,104 @@ def get_target_blocked_modules(model_args):
     
     return target_modules, blocked_modules
 
-def load_model(model_args, load_dir):
-    logging.warning("Loading quantized model")
-    model_dir = get_model_dir(load_dir, model_args)
+def load_loftq_model(model_class, model_args, save_dir):
+    """
+    Load a model with LoraLinearLayer modules.
+    """
+    model_dir = get_model_dir(save_dir, model_args)
+    # Load the model architecture and basic parameters
+    if issubclass(model_class, transformers.PreTrainedModel):
+        # For HuggingFace models
+        model = model_class.from_pretrained(model_dir)
+    else:
+        # For regular PyTorch models
+        model = model_class(**(model_args if model_args else {}))
+        model.load_state_dict(torch.load(os.path.join(save_dir, f"loftq_model.pt")), strict=False)
+        
+    module_mapping = torch.load(os.path.join(model_dir, f"loftq_mapping.pt"))
+    
+    # First replace all mapped linear layers with LoFTQLayer
+    for name, module_info in module_mapping.items():
+        if module_info["type"] == "LoraLinearLayer":
+            parent_name = ".".join(name.split(".")[:-1])
+            module_name = name.split(".")[-1]
+            
+            if not parent_name:
+                parent = model
+            else:
+                parent = model.get_submodule(parent_name)
+            
+            # Get the original linear layer
+            try:
+                original_module = parent.get_submodule(module_name)
+                
+                # Create a new LoFTQLayer
+                loftq_layer = LoraLinearLayer(
+                    base_layer=original_module if isinstance(original_module, torch.nn.Linear) else torch.nn.Linear(
+                        module_info["in_features"],
+                        module_info["out_features"],
+                        bias=hasattr(original_module, 'bias') and original_module.bias is not None
+                    ),
+                    quantization_bits=module_info["quantization_bits"],
+                    reduced_rank=module_info["reduced_rank"],
+                    num_iters=module_info["num_iters"],
+                    quantization_method=module_info["quantization_method"]
+                )
+                
+                # Replace the module
+                setattr(parent, module_name, loftq_layer)
+            except AttributeError:
+                print(f"Warning: Module {module_name} not found in {parent_name}")
+                
+    loftq_state_dict = torch.load(os.path.join(model_dir, f"loftq_weights.pt"))
+        
+    with torch.no_grad():
+        for name, param in loftq_state_dict.items():
+            if isinstance(param, torch.Tensor):
+                # Get the parameter from the model and assign the loaded value
+                module_path = name.rsplit(".", 1)[0]  # Get module path without parameter name
+                param_name = name.split(".")[-1]  # Get parameter name
+                
+                try:
+                    module = model.get_submodule(module_path)
+                    if "base_layer" in param_name:
+                        getattr(module, 'base_layer').weight.copy_(param)
+                    elif hasattr(module, param_name):
+                        getattr(module, param_name).weight.copy_(param)
+                except AttributeError as e:
+                    print(f"Warning: Could not set parameter {name}")
 
-    model = transformers.AutoModelForSequenceClassification.from_pretrained(model_dir)
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
     
-    loftq_config_path = os.path.join(model_dir, "loftq_config.json")
-    if os.path.exists(loftq_config_path):
-        with open(loftq_config_path, "r") as f:
-            loftq_config = json.load(f)
+    return model, tokenizer
+
+# def load_model(model_args, load_dir):
+#     logger.warning("Loading quantized model")
+#     model_dir = get_model_dir(load_dir, model_args)
+
+#     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_dir)
+#     tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
+    
+#     loftq_config_path = os.path.join(model_dir, "loftq_config.json")
+#     if os.path.exists(loftq_config_path):
+#         with open(loftq_config_path, "r") as f:
+#             loftq_config = json.load(f)
         
-        # Reapply LoftQ structure
-        model_args.loftq = loftq_config["loftq"]
-        model_args.qlora = loftq_config["qlora"]
-        utils.replace_module(
-            model, 
-            allow_name=loftq_config["allow_name"],
-            reduced_rank=loftq_config["reduced_rank"],
-            decomposition=False,  # Don't reapply quantization
-            int_bit=loftq_config["int_bit"],
-            args=model_args
-        )
+#         # Reapply LoftQ structure
+#         model_args.loftq = loftq_config["loftq"]
+#         model_args.qlora = loftq_config["qlora"]
+#         utils.replace_module(
+#             model, 
+#             allow_name=loftq_config["allow_name"],
+#             reduced_rank=loftq_config["reduced_rank"],
+#             decomposition=False,  # Don't reapply quantization
+#             int_bit=loftq_config["int_bit"],
+#             args=model_args
+#         )
     
-    target_modules, blocked_modules = get_target_blocked_modules(model_args)
+#     target_modules, blocked_modules = get_target_blocked_modules(model_args)
     
-    return model, tokenizer, target_modules, blocked_modules
+#     return model, tokenizer, target_modules, blocked_modules
 
 def compute_metrics(eval_pred):
     metric = evaluate.load(data_args.data_name, data_args.task_name)
@@ -205,7 +278,7 @@ def compute_metrics(eval_pred):
     return metric.compute(predictions=predictions, references=labels)
 
 def test(model, tokenizer, model_args, data_args, training_args, raw_dataset):
-    logging.warning("Preparing to train model")
+    logger.warning("Preparing to train model")
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable parameters: {trainable_params}")
     total_params = sum(p.numel() for p in model.parameters())
@@ -234,12 +307,12 @@ def test(model, tokenizer, model_args, data_args, training_args, raw_dataset):
     )
     
     # Get predictions for matched test set
-    logging.info("Generating predictions for matched test set")
+    logger.info("Generating predictions for matched test set")
     matched_preds = trainer.predict(test_matched_processed)
     matched_pred_ids = np.argmax(matched_preds.predictions, axis=1)
     
     # Get predictions for mismatched test set
-    logging.info("Generating predictions for mismatched test set")
+    logger.info("Generating predictions for mismatched test set")
     mismatched_preds = trainer.predict(test_mismatched_processed)
     mismatched_pred_ids = np.argmax(mismatched_preds.predictions, axis=1)
     
@@ -266,7 +339,7 @@ def test(model, tokenizer, model_args, data_args, training_args, raw_dataset):
     matched_results.to_csv(os.path.join(output_dir, "mnli_matched_results.csv"), index=False)
     mismatched_results.to_csv(os.path.join(output_dir, "mnli_mismatched_results.csv"), index=False)
     
-    logging.info(f"Test predictions saved to {output_dir}")
+    logger.info(f"Test predictions saved to {output_dir}")
     
     # Save in GLUE submission format
     matched_submission = pd.DataFrame({
@@ -282,7 +355,7 @@ def test(model, tokenizer, model_args, data_args, training_args, raw_dataset):
     matched_submission.to_csv(os.path.join(output_dir, "mnli-m.tsv"), sep="\t", index=False)
     mismatched_submission.to_csv(os.path.join(output_dir, "mnli-mm.tsv"), sep="\t", index=False)
     
-    logging.info(f"GLUE submission files saved to {output_dir}")
+    logger.info(f"GLUE submission files saved to {output_dir}")
     
     return {
         "matched_results": matched_results,
@@ -302,20 +375,62 @@ def preprocess_function(examples):
         max_length=256
     )
     
+def create_reduced_dataset(dataset, num_examples=1000, seed=42):
+    """Create a smaller subset of the dataset for quick testing."""
+    # Set seed for reproducibility
+    import numpy as np
+    np.random.seed(seed)
+    
+    indices = [i for i in range(len(dataset))]
+    
+    # Shuffle the indices
+    np.random.shuffle(indices)
+    
+    reduced_indices = indices[:num_examples]
+    
+    # Create the reduced dataset
+    reduced_dataset = dataset.select(reduced_indices)
+    print(f"Created reduced dataset with {len(reduced_dataset)} examples")
+    
+    return reduced_dataset
+
+def get_base_class(model_args):
+    config = transformers.AutoConfig.from_pretrained(model_args.model_name_or_path)
+    model_type = config.model_type
+    
+    if any(name in model_args.model_name_or_path.lower() for name in ["llama", "mistral", "falcon"]):
+        return transformers.AutoModelForCausalLM
+
+    elif any(name in model_args.model_name_or_path.lower() for name in ["bart", "t5"]):
+        return transformers.AutoModelForSeq2SeqLM
+
+    elif any(name in model_args.model_name_or_path.lower() for name in ["deberta", "roberta", "bert"]):
+        print(model_type)
+        if model_type == "bert":
+            from transformers import BertForSequenceClassification as ModelClass
+        elif "deberta" in model_type:
+            from transformers import DebertaV2ForSequenceClassification as ModelClass
+        elif model_type == "roberta":
+            from transformers import RobertaForSequenceClassification as ModelClass
+        return ModelClass
+    else:
+        raise NotImplementedError("Other models not supported yet.")
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
     parser = transformers.HfArgumentParser((BaseArguments, ModelArguments, DataArguments, TrainingArguments))
     base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         
     raw_data, labels, num_labels = load_raw_dataset(data_args.data_name, data_args.task_name)
+    test_small = create_reduced_dataset(raw_data['test_matched'], 10)
+    test_mm_small = create_reduced_dataset(raw_data['test_mismatched'], 10)
+    raw_data['test_matched'] = test_small
+    raw_data['test_mismatched'] = test_mm_small
     
-    model, tokenizer, target_modules, blocked_modules = load_model(model_args, base_args.load_dir)
-    
-    for name, param in model.named_parameters():
-        print(name)
-        if 'lora' in name or 'left' in name or 'right' in name:
-            param.requires_grad = True
-        else:
-            param.requires_grad = False
+    model_class = get_base_class(model_args)
+    model, tokenizer = load_loftq_model(model_class, model_args, base_args.load_dir)
 
     test(model, tokenizer, model_args, data_args, training_args, raw_data)
     # # print("\nApplying PEFT LoRA implementation...")

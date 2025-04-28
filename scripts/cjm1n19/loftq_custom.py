@@ -1,6 +1,6 @@
 import math
 import sys
-from typing import Any, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from torch import nn
@@ -10,6 +10,53 @@ import logging
 
 compute_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# class LoraLinearLayer(nn.Module):
+#     def __init__(
+#         self,
+#         base_layer: nn.Linear,
+#         quantization_bits: int = 4,
+#         reduced_rank: int = 16,
+#         num_iters: int = 5,
+#         quantization_method: str = "uniform",
+#         pre_quantized_weights=None
+#     ):
+#         super().__init__()
+#         self.base_layer = base_layer
+        
+#         in_features = base_layer.in_features
+#         out_features = base_layer.out_features
+        
+#         self.lora_A = nn.Linear(in_features, reduced_rank, bias=False)
+#         self.lora_B = nn.Linear(reduced_rank, out_features, bias=False)
+        
+#         if pre_quantized_weights:
+#             self.base_layer.weight.data = pre_quantized_weights['Q'].clone()
+#             self.lora_A.weight.data = pre_quantized_weights['A'].clone()
+#             self.lora_B.weight.data = pre_quantized_weights['B'].clone()
+#         else:
+#             W_initial = base_layer.weight.data.clone()
+#             self.has_bias = base_layer.bias is not None
+#             if self.has_bias:
+#                 self.bias = nn.Parameter(base_layer.bias.data.clone())
+#             else:
+#                 self.register_parameter('bias', None)
+                
+#             Q, A, B = quantize_layer(W_initial, quantization_bits, reduced_rank, num_iters, quantization_method)
+            
+#             self.base_layer.weight.data = Q.clone()
+#             self.lora_A.weight.data = A.clone()
+#             self.lora_B.weight.data = B.clone()
+            
+        
+#         # self.register_buffer('weight', Q)
+        
+    
+#     def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+#         out = self.base_layer(x, *args, **kwargs)
+#         # out = nn.functional.linear(x, self.weight, self.bias)
+#         lora = self.lora_B(self.lora_A(x))
+#         return out + lora
+    
 class LoraLinearLayer(nn.Module):
     def __init__(
         self,
@@ -20,55 +67,52 @@ class LoraLinearLayer(nn.Module):
         quantization_method: str = "uniform"
     ):
         super().__init__()
+        self.in_features = base_layer.in_features
+        self.out_features = base_layer.out_features
+        
         self.base_layer = base_layer
+
+        for param in self.base_layer.parameters():
+            param.requires_grad = False
         
-        in_features = base_layer.in_features
-        out_features = base_layer.out_features
+        self.quantization_bits = quantization_bits
+        self.reduced_rank = reduced_rank
+        self.num_iters = num_iters
+        self.quantization_method = quantization_method
         
-        W_initial = base_layer.weight.data.clone()
+        self.lora_A = nn.Linear(self.in_features, reduced_rank, bias=False)
+        self.lora_B = nn.Linear(reduced_rank, self.out_features, bias=False)
+        
+        self.reset_lora_parameters()
+        
         self.has_bias = base_layer.bias is not None
         if self.has_bias:
             self.bias = nn.Parameter(base_layer.bias.data.clone())
         else:
             self.register_parameter('bias', None)
-            
-        Q, A, B = quantize_layer(W_initial, quantization_bits, reduced_rank, num_iters, quantization_method)
         
         # self.register_buffer('weight', Q)
         
-        self.lora_A = nn.Linear(in_features, reduced_rank, bias=False)
-        self.lora_B = nn.Linear(reduced_rank, out_features, bias=False)
+    def reset_lora_parameters(self):
+        # Initialize LoRA weights
+        nn.init.kaiming_uniform_(self.lora_A.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_B.weight)
+    
+    def quantize(self):
+        W_initial = self.base_layer.weight.data.clone()
         
-        self.lora_A.weight.data = A
-        self.lora_B.weight.data = B
+        Q, A, B = quantize_layer(W_initial, self.quantization_bits, self.reduced_rank, self.num_iters, self.quantization_method)
         
         self.base_layer.weight.data = Q
+        self.lora_A.weight.data = A
+        self.lora_B.weight.data = B
     
     def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
         out = self.base_layer(x, *args, **kwargs)
         # out = nn.functional.linear(x, self.weight, self.bias)
         lora = self.lora_B(self.lora_A(x))
         return out + lora
-    
-    def initialize_weight(self, quant_weight, left_weight, right_weight, sparse_weight=None, bias=None):
-        self.quant.weight = nn.Parameter(quant_weight, requires_grad=False)  # Freeze the backbone
 
-        if self.has_bias:
-            self.bias = nn.Parameter(bias, requires_grad=True)
-        if self.has_svd_adapter:
-            self.left.weight = nn.Parameter(left_weight, requires_grad=True)
-            self.right.weight = nn.Parameter(right_weight, requires_grad=True)
-
-        if self.has_lora_adapter:
-            lora_A_weight = nn.Parameter(self.quant.weight.new_zeros((self.reduced_rank, self.in_feature)),
-                                         requires_grad=True)
-            lora_B_weight = nn.Parameter(self.quant.weight.new_zeros((self.out_feature, self.reduced_rank),
-                                         requires_grad=True))
-            nn.init.kaiming_uniform_(lora_A_weight, a=math.sqrt(5))
-            nn.init.zeros_(lora_B_weight)
-            self.lora_A.weight = lora_A_weight
-            self.lora_B.weight = lora_B_weight
-            
 
 class BlockQuantizer:
     def __init__(self, num_bits=2, method="uniform", block_size=64, device="cpu", *args, **kwargs):
@@ -229,26 +273,29 @@ def convert_linear_layer(
     num_iters: int = 5,
     quantization_method: str = "uniform",
     target_modules: List[str] = ['all-linear'],
-    excluded_moduls: List[str] = ['classifier']
+    excluded_modules: List[str] = ['classifier']
 ) -> nn.Module:
     all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
     for name, module in model.named_children():
         
-        if any(blocked in name for blocked in excluded_moduls):
+        if any(blocked in name for blocked in excluded_modules):
             continue
         
-        if (all_linear and isinstance(module, nn.Linear)) or (module in target_modules):
+        if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
             print(f"Converting {name} layer")
-            setattr(
-                model,
-                name,
-                LoraLinearLayer(
+            loftq_layer = LoraLinearLayer(
                     module,
                     quantization_bits=quantization_bits,
                     reduced_rank=rank,
                     num_iters=num_iters,
                     quantization_method=quantization_method
                 )
+            loftq_layer.quantize()
+            
+            setattr(
+                model,
+                name,
+                loftq_layer    
             )
         else:
             convert_linear_layer(
@@ -256,7 +303,39 @@ def convert_linear_layer(
                 quantization_bits=quantization_bits,
                 rank=rank,
                 num_iters=num_iters,
-                quantization_method=quantization_method
+                quantization_method=quantization_method,
+                target_modules=target_modules,
+                excluded_modules=excluded_modules
             )
+    return model
+    
+
+def requantize_linear_layer(
+    model: nn.Module, 
+    target_modules: List[str] = ['all-linear'],
+    excluded_modules: List[str] = ['classifier'],
+    pre_quantized_weights: Dict = None
+) -> nn.Module:
+    all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
+    to_update = []
+    for name, module in model.named_modules():
+        print(name)
+        if any(blocked in name for blocked in excluded_modules):
+            continue
+        
+        if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
+            to_update.append((name, module))
+            print(f"Converting {name} layer")
+    
+    for name, module in to_update:
+        setattr(
+            model,
+            name,
+            LoraLinearLayer(
+                module,
+                pre_quantized_weights=pre_quantized_weights[name]
+            )
+        )
+
     return model
     
