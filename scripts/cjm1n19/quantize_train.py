@@ -505,6 +505,9 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_dataset):
         remove_columns=["premise", "hypothesis", "idx"]
     )
     
+    print(tokenized_datasets["train"][0])
+    sys.exit()
+    
     trainer = LoFTQTrainer(
         model=model,
         args=training_args,
