@@ -52,9 +52,6 @@ def calculate_metrics_from_csv(
         "true_label": val_matched["label"]
     })
     
-    print(val_matched_df[:10]["label"])
-    sys.exit()
-    
     val_mismatched_df = pd.DataFrame({
         "idx": val_mismatched["idx"],
         "true_label": val_mismatched["label"]
