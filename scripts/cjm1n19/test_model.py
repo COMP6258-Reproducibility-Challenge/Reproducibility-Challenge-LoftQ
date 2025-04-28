@@ -277,6 +277,102 @@ def compute_metrics(eval_pred):
     predictions = np.argmax(predictions, axis=1)
     return metric.compute(predictions=predictions, references=labels)
 
+def test_loftq_on_mnli(
+    model,
+    tokenizer,
+    model_args,
+    data_args,
+    training_args,
+    raw_dataset,
+    output_dir: str = "./results",
+    batch_size: int = 32,
+    max_length: int = 256,
+):
+    """
+    Test a LoFTQ model on MNLI using the Transformers Trainer.
+    
+    Args:
+        model_path: Path to the saved LoFTQ model
+        output_dir: Directory to save test results
+        batch_size: Batch size for evaluation
+        max_length: Maximum sequence length
+        tokenizer_name: Name of the tokenizer to use
+    
+    Returns:
+        Dictionary with evaluation metrics
+    """
+    # Set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    
+    # Load model
+    model.to(device)
+    
+    # Load MNLI dataset - both matched and mismatched validation sets
+    print("Loading MNLI dataset")
+    mnli_matched = load_dataset("glue", "mnli", split="validation_matched")
+    mnli_mismatched = load_dataset("glue", "mnli", split="validation_mismatched")
+    
+    # Preprocessing function
+    def preprocess_function(examples):
+        return tokenizer(
+            examples["premise"],
+            examples["hypothesis"],
+            padding="max_length",
+            truncation=True,
+            max_length=max_length,
+        )
+    
+    # Preprocess datasets
+    print("Preprocessing datasets")
+    mnli_matched = mnli_matched.map(preprocess_function, batched=True)
+    mnli_mismatched = mnli_mismatched.map(preprocess_function, batched=True)
+    
+    # Load accuracy metric
+    accuracy_metric = evaluate.load("accuracy")
+    
+    def compute_metrics(eval_preds):
+        logits, labels = eval_preds
+        predictions = np.argmax(logits, axis=-1)
+        return accuracy_metric.compute(predictions=predictions, references=labels)
+    
+    # Set up training arguments for evaluation
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        per_device_eval_batch_size=batch_size,
+        remove_unused_columns=True,
+    )
+    
+    # Create trainer
+    trainer = transformers.Trainer(
+        model=model,
+        args=training_args,
+        compute_metrics=compute_metrics,
+    )
+    
+    # Run evaluation on matched validation set
+    print("Evaluating on MNLI matched validation set")
+    matched_results = trainer.evaluate(eval_dataset=mnli_matched)
+    print(f"MNLI matched results: {matched_results}")
+    
+    # Run evaluation on mismatched validation set
+    print("Evaluating on MNLI mismatched validation set")
+    mismatched_results = trainer.evaluate(eval_dataset=mnli_mismatched)
+    print(f"MNLI mismatched results: {mismatched_results}")
+    
+    # Combine results
+    all_results = {
+        "mnli_matched": matched_results,
+        "mnli_mismatched": mismatched_results
+    }
+    
+    # Print summary
+    print("\nSummary:")
+    print(f"MNLI matched accuracy: {matched_results['eval_accuracy']:.4f}")
+    print(f"MNLI mismatched accuracy: {mismatched_results['eval_accuracy']:.4f}")
+    
+    return all_results
+
 def test(model, tokenizer, model_args, data_args, training_args, raw_dataset):
     logger.warning("Preparing to train model")
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -424,15 +520,16 @@ if __name__ == "__main__":
     base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         
     raw_data, labels, num_labels = load_raw_dataset(data_args.data_name, data_args.task_name)
-    test_small = create_reduced_dataset(raw_data['test_matched'], 10)
-    test_mm_small = create_reduced_dataset(raw_data['test_mismatched'], 10)
-    raw_data['test_matched'] = test_small
-    raw_data['test_mismatched'] = test_mm_small
+    # test_small = create_reduced_dataset(raw_data['test_matched'], 10)
+    # test_mm_small = create_reduced_dataset(raw_data['test_mismatched'], 10)
+    # raw_data['test_matched'] = test_small
+    # raw_data['test_mismatched'] = test_mm_small
     
     model_class = get_base_class(model_args)
     model, tokenizer = load_loftq_model(model_class, model_args, base_args.load_dir)
 
-    test(model, tokenizer, model_args, data_args, training_args, raw_data)
+    test_loftq_on_mnli(model, tokenizer, model_args, data_args, training_args, raw_data)
+    # test(model, tokenizer, model_args, data_args, training_args, raw_data)
     # # print("\nApplying PEFT LoRA implementation...")
     # peft_model = transformers.AutoModelForSequenceClassification.from_pretrained(
     #     model_args.model_name_or_path,
