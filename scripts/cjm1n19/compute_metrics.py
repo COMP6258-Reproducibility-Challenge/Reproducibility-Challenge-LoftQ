@@ -1,4 +1,5 @@
 import os
+import sys
 import pandas as pd
 import numpy as np
 import json
@@ -50,6 +51,9 @@ def calculate_metrics_from_csv(
         "idx": val_matched["idx"],
         "true_label": val_matched["label"]
     })
+    
+    print(val_matched_df[:10]["label"])
+    sys.exit()
     
     val_mismatched_df = pd.DataFrame({
         "idx": val_mismatched["idx"],
