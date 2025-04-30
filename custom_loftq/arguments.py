@@ -6,7 +6,7 @@ from transformers import TrainingArguments
 @dataclass
 class BaseArguments:
     save_dir: Optional[str] = field(
-        default="quantized_model",
+        default="quantized_models",
         metadata={"help": "Path to save the quantized model."},
     )
     from_saved: Optional[bool] = field(

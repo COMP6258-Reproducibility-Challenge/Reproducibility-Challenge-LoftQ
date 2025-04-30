@@ -13,6 +13,18 @@ from arguments import DataArguments
 from model_utils import get_model_dir, save_quantized_model
 from utils import LoFTQTrainer
 
+task_to_keys = {
+    "cola": ("sentence", None),
+    "mnli": ("premise", "hypothesis"),
+    "mrpc": ("sentence1", "sentence2"),
+    "qnli": ("question", "sentence"),
+    "qqp": ("question1", "question2"),
+    "rte": ("sentence1", "sentence2"),
+    "sst2": ("sentence", None),
+    "stsb": ("sentence1", "sentence2"),
+    "wnli": ("sentence1", "sentence2"),
+}
+
 def count_labels(dataset):
     train_set = dataset["train"]
     labels = set([entry['label'] for entry in train_set])
@@ -47,10 +59,10 @@ def create_reduced_dataset(dataset, labels, num_examples=1000, seed=42):
     
     return reduced_dataset
 
-def preprocess_function(examples, tokenizer):
+def preprocess_function(examples, tokenizer, sentence1_key, sentence2_key):
     return tokenizer(
-        examples["premise"],
-        examples["hypothesis"],
+        examples[sentence1_key],
+        examples[sentence2_key],
         padding="max_length",
         truncation=True,
         max_length=256
@@ -59,10 +71,11 @@ def preprocess_function(examples, tokenizer):
 def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
     logging.warning("Preparing to train model")
     
-    preprocess_with_tokenizer = partial(preprocess_function, tokenizer=tokenizer)
+    sentence1_key, sentence2_key = task_to_keys[data_args.task_name]
+    
+    preprocess_with_tokenizer = partial(preprocess_function, tokenizer=tokenizer, sentence1_key=sentence1_key, sentence2_key=sentence2_key)
     compute_metrics = partial(compute_classification_metrics, data_args=data_args)
     
-    sentence1_key, sentence2_key = task_to_keys[args.task_name]
     
     columns_to_remove = [col for col in raw_datasets['train'].column_names if col != "label"]
     

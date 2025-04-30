@@ -7,29 +7,6 @@ from utils import load_raw_dataset
 import model_utils
 import classification_utils
 
-task_to_keys = {
-    "cola": ("sentence", None),
-    "mnli": ("premise", "hypothesis"),
-    "mrpc": ("sentence1", "sentence2"),
-    "qnli": ("question", "sentence"),
-    "qqp": ("question1", "question2"),
-    "rte": ("sentence1", "sentence2"),
-    "sst2": ("sentence", None),
-    "stsb": ("sentence1", "sentence2"),
-    "wnli": ("sentence1", "sentence2"),
-}
-
-task_to_metrics = {
-    "cola": "matthews_correlation",
-    "mnli": "accuracy",
-    "mrpc": "f1",
-    "qnli": "accuracy",
-    "qqp": "f1",
-    "rte": "accuracy",
-    "sst2": "accuracy",
-    "stsb": "pearson",
-}
-
 if __name__ == "__main__":
     parser = HfArgumentParser((BaseArguments, ModelArguments, DataArguments, TrainingArguments))
     base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()
