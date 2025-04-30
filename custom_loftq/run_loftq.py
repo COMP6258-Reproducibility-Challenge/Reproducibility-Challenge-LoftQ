@@ -47,12 +47,13 @@ if __name__ == "__main__":
     print(f"LoftQ - Trainable parameters: {quant_trainable:,} ({100*quant_trainable/quant_total:.2f}%)")
     if not training_args.no_train:
         if not training_args.train_small is None and training_args.train_small == True:
-            train_small = classification_utils.create_reduced_dataset(raw_data["train"], labels, num_examples=100)
-            val_small = classification_utils.create_reduced_dataset(raw_data["validation_matched"], labels, num_examples=3)
-            val_mm_small = classification_utils.create_reduced_dataset(raw_data["validation_mismatched"], labels, num_examples=3)
-            raw_data['train'] = train_small
-            raw_data['validation_matched'] = val_small
-            raw_data['validation_mismatched'] = val_mm_small
+            raw_data['train'] = classification_utils.create_reduced_dataset(raw_data["train"], labels, num_examples=100)
+            if data_args.task_name == "mnli":
+                raw_data['validation_matched'] = classification_utils.create_reduced_dataset(raw_data["validation_matched"], labels, num_examples=3)
+                raw_data['validation_mismatched'] = classification_utils.create_reduced_dataset(raw_data["validation_mismatched"], labels, num_examples=3)
+            else:
+                raw_data['validation'] = classification_utils.create_reduced_dataset(raw_data["validation_"], labels, num_examples=3)
+                
             classification_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
         else:
             classification_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
