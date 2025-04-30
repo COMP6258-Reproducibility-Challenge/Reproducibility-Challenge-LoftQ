@@ -1,16 +1,11 @@
 from functools import partial
-import os
 import logging
-from typing import List, Optional, Set, Tuple, Type, Union
 
 import numpy as np
 
-from transformers import Trainer
 import evaluate
 
-from arguments import DataArguments
-
-from model_utils import get_model_dir, save_quantized_model
+from model_utils import get_model_dir
 from utils import LoFTQTrainer
 
 task_to_keys = {

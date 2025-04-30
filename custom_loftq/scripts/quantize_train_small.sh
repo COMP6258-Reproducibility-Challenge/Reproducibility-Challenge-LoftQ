@@ -5,6 +5,7 @@ python run_loftq.py \
     --decompose \
     --loftq \
     --reduced_rank 32 \
-    --num_iter 1 \
+    --num_iter 5 \
     --int_bit 4 \
-    --train_small
+    --train_small \
+    --true_quantization

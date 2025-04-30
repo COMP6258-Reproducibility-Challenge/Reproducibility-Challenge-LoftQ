@@ -68,6 +68,10 @@ class ModelArguments:
     qlora: Optional[bool] = field(
         default=False,
         metadata={"help": "Quantize method: uniform or nf"},
+    ),
+    true_quantization: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Quantize the model and save only the quantized weight - slower computation but much higher memory saving, or save the dequantized weight - faster computation, but reduced memory saving"}
     )
 
 @dataclass

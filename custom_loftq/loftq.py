@@ -1,16 +1,17 @@
-import math
 import sys
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
 import torch
 from torch import nn
 from accelerate.utils.memory import clear_device_cache
-import logging
 
-
-compute_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-class LoraLinearLayer(nn.Module):
+if torch.cuda.is_available():
+    compute_device = torch.device("cuda")
+elif torch.mps.is_available():
+    compute_device = torch.device("mps")
+else:
+    compute_device = torch.device("cpu")
+class BaseLoftqLinear(nn.Module):
     def __init__(
         self,
         base_layer: nn.Linear,
@@ -23,46 +24,146 @@ class LoraLinearLayer(nn.Module):
         self.in_features = base_layer.in_features
         self.out_features = base_layer.out_features
         
-        self.base_layer = base_layer
-
-        for param in self.base_layer.parameters():
-            param.requires_grad = False
-        
-        self.quantization_bits = quantization_bits
-        self.reduced_rank = reduced_rank
-        self.num_iters = num_iters
-        self.quantization_method = quantization_method
-        
-        self.lora_A = nn.Linear(self.in_features, reduced_rank, bias=False)
-        self.lora_B = nn.Linear(reduced_rank, self.out_features, bias=False)
-        
-        self.reset_lora_parameters()
-        
         self.has_bias = base_layer.bias is not None
         if self.has_bias:
             self.bias = nn.Parameter(base_layer.bias.data.clone())
         else:
             self.register_parameter('bias', None)
         
-    def reset_lora_parameters(self):
-        nn.init.kaiming_uniform_(self.lora_A.weight, a=math.sqrt(5))
-        nn.init.zeros_(self.lora_B.weight)
+        self.lora_A = nn.Linear(self.in_features, reduced_rank, bias=False)
+        self.lora_B = nn.Linear(reduced_rank, self.out_features, bias=False)
+        
+        self.quantization_bits = quantization_bits
+        self.reduced_rank = reduced_rank
+        self.num_iters = num_iters
+        self.quantization_method = quantization_method
+        self.quantizer = BlockQuantizer(
+            num_bits=quantization_bits, 
+            device=compute_device, 
+            method=quantization_method, 
+            block_size=64
+        )
+        
+    def quantize(self):
+        pass
     
+    def _loftq(self, weight, reduced_rank, num_iter):
+        """Apply LoftQ algorithm to get quantized weights and LoRA factors"""
+        dtype = weight.dtype
+        
+        weight = weight.to(device=compute_device, dtype=torch.float32)
+        res = weight.clone()
+        
+        for i in range(num_iter):
+            clear_device_cache()
+            
+            # Quantize the residual
+            quantized_weight, max_abs, shape = self.quantizer.quantize_block(res)
+            dequantized_weight = self.quantizer.dequantize_block(quantized_weight, max_abs, shape)
+        
+            res = weight - dequantized_weight
+        
+            # Decompose the residual by SVD
+            L, R = self._low_rank_decomposition(res, reduced_rank=reduced_rank)
+            res = weight - torch.mm(L, R)
+        
+        # Return both the quantized representation and the LoRA factors
+        return quantized_weight, dequantized_weight.to(device=compute_device, dtype=dtype), max_abs, shape, R, L
+    
+    def _low_rank_decomposition(self, weight, reduced_rank=16):
+        """
+        :param weight: The matrix to decompose, of shape (H, W) :param reduced_rank: the final rank :return:
+        """
+        matrix_dimension = len(weight.size())
+        if matrix_dimension != 2:
+            raise ValueError(f"Only support 2D matrix, but your input has {matrix_dimension} dimensions.")
+
+        # Use SVD to decompose a matrix, default full_matrices is False to save parameters
+        U, S, Vh = torch.linalg.svd(weight, full_matrices=False)
+
+        L = U @ (torch.sqrt(torch.diag(S)[:, 0:reduced_rank]))
+        R = torch.sqrt(torch.diag(S)[0:reduced_rank, :]) @ Vh
+
+        return L, R
+        # return {"L": L, "R": R, "U": U, "S": S, "Vh": Vh, "reduced_rank": reduced_rank}
+
+
+class TrueQuantizedLinear(BaseLoftqLinear):
+        def quantize(self, weight: torch.Tensor):
+            """Quantize weights and initialize LoRA adapters"""
+            W_initial = weight.clone()
+            
+            # Apply LoftQ to get quantized weights and LoRA factors
+            qweight_pack, dequantized_weight, weight_max, weight_shape, lora_A, lora_B = self._loftq(
+                W_initial, 
+                self.reduced_rank, 
+                self.num_iters
+            )
+            
+            # Store quantized weights as buffers (not parameters)
+            self.register_buffer('qweight', qweight_pack)
+            self.register_buffer('weight_max', weight_max)
+            self.register_buffer('weight_shape', torch.tensor(weight_shape))
+            
+            # Initialize LoRA adapters
+            self.lora_A.weight.data = lora_A
+            self.lora_B.weight.data = lora_B
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Forward pass with on-the-fly dequantization"""
+            # Dequantize weights
+            weight = self.quantizer.dequantize_block(
+                self.qweight, 
+                self.weight_max, 
+                (self.weight_shape[0].item(), self.weight_shape[1].item())
+            )
+            
+            # Compute the base output using dequantized weights
+            base_output = nn.functional.linear(x, weight, self.bias)
+            
+            # Apply LoRA adapters
+            lora_output = self.lora_B(self.lora_A(x))
+            
+            return base_output + lora_output
+        
+
+class LoraLinearLayer(BaseLoftqLinear):
+    def __init__(
+        self,
+        base_layer: nn.Linear,
+        quantization_bits: int = 4,
+        reduced_rank: int = 16,
+        num_iters: int = 5,
+        quantization_method: str = "uniform"
+    ):
+        super().__init__(
+            base_layer,
+            quantization_bits,
+            reduced_rank,
+            num_iters,
+            quantization_method
+        )
+        
+        self.base_layer = base_layer
+        
+        for param in self.base_layer.parameters():
+            param.requires_grad = False
+            
     def quantize(self):
         W_initial = self.base_layer.weight.data.clone()
         
-        Q, A, B = quantize_layer(W_initial, self.quantization_bits, self.reduced_rank, self.num_iters, self.quantization_method)
+        qweight_pack, dequantized_weight, weight_max, weight_shape, lora_A, lora_B = self._loftq(W_initial, self.reduced_rank, self.num_iters)
         
-        self.base_layer.weight.data = Q
-        self.lora_A.weight.data = A
-        self.lora_B.weight.data = B
-    
+        self.base_layer.weight.data = dequantized_weight
+        self.lora_A.weight.data = lora_A
+        self.lora_B.weight.data = lora_B
+        
+        del self.quantizer
+        
     def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
         out = self.base_layer(x, *args, **kwargs)
-        # out = nn.functional.linear(x, self.weight, self.bias)
         lora = self.lora_B(self.lora_A(x))
         return out + lora
-
 
 class BlockQuantizer:
     def __init__(self, num_bits=2, method="uniform", block_size=64, device="cpu", *args, **kwargs):
@@ -175,47 +276,6 @@ class BlockQuantizer:
         weight = weight.reshape(weight_shape)
 
         return weight
-    
-def _low_rank_decomposition(weight, reduced_rank=16):
-    """
-    :param weight: The matrix to decompose, of shape (H, W) :param reduced_rank: the final rank :return:
-    """
-    matrix_dimension = len(weight.size())
-    if matrix_dimension != 2:
-        raise ValueError(f"Only support 2D matrix, but your input has {matrix_dimension} dimensions.")
-
-    # Use SVD to decompose a matrix, default full_matrices is False to save parameters
-    U, S, Vh = torch.linalg.svd(weight, full_matrices=False)
-
-    L = U @ (torch.sqrt(torch.diag(S)[:, 0:reduced_rank]))
-    R = torch.sqrt(torch.diag(S)[0:reduced_rank, :]) @ Vh
-
-    return L, R
-    # return {"L": L, "R": R, "U": U, "S": S, "Vh": Vh, "reduced_rank": reduced_rank}
-
-def quantize_layer(weight: Union[torch.Tensor, nn.Parameter], num_bits: int, reduced_rank: int, num_iter=1, method="uniform"):
-    dtype = weight.dtype
-    
-    weight = weight.to(device=compute_device, dtype=torch.float32)
-    res = weight.clone()
-    
-    quantizer = BlockQuantizer(num_bits=num_bits, device=compute_device, method=method, block_size=64)
-    
-    for i in range(num_iter):
-        clear_device_cache()
-        
-        quantized_weight, max_abs, shape = quantizer.quantize_block(res)
-        dequantized_weight = quantizer.dequantize_block(quantized_weight, max_abs, shape)
-    
-        res = weight - dequantized_weight
-    
-        L, R = _low_rank_decomposition(res, reduced_rank=reduced_rank)
-        res = weight - torch.mm(L, R)
-    
-    lora_A, lora_B = R, L
-    
-    return dequantized_weight.to(device=compute_device, dtype=dtype), lora_A, lora_B
-
 
 def convert_linear_layer(
     model: nn.Module, 
@@ -224,7 +284,8 @@ def convert_linear_layer(
     num_iters: int = 5,
     quantization_method: str = "uniform",
     target_modules: List[str] = ['all-linear'],
-    excluded_modules: List[str] = ['classifier']
+    excluded_modules: List[str] = ['classifier'],
+    true_quantization: bool = False  # New parameter to enable true quantization
 ) -> nn.Module:
     """
     Convert a torch.nn.Linear layer in to a custom LoraLinearLayer including quantizing and computing the low-rank decomposition  
@@ -236,15 +297,27 @@ def convert_linear_layer(
             continue
         
         if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
-            print(f"Converting {name} layer")
-            loftq_layer = LoraLinearLayer(
+            print(f"Converting {name} layer with {'true' if true_quantization else 'simulated'} quantization")
+            if true_quantization:
+                loftq_layer = TrueQuantizedLinear(
                     module,
                     quantization_bits=quantization_bits,
                     reduced_rank=rank,
                     num_iters=num_iters,
                     quantization_method=quantization_method
                 )
-            loftq_layer.quantize()
+                
+                loftq_layer.quantize(module.weight.data.clone())
+            else:
+                loftq_layer = LoraLinearLayer(
+                    module,
+                    quantization_bits=quantization_bits,
+                    reduced_rank=rank,
+                    num_iters=num_iters,
+                    quantization_method=quantization_method
+                )
+            
+                loftq_layer.quantize()
             
             setattr(
                 model,
@@ -259,16 +332,18 @@ def convert_linear_layer(
                 num_iters=num_iters,
                 quantization_method=quantization_method,
                 target_modules=target_modules,
-                excluded_modules=excluded_modules
+                excluded_modules=excluded_modules,
+                true_quantization=true_quantization
             )
     return model
-    
+
 
 def requantize_linear_layer(
     model: nn.Module, 
     target_modules: List[str] = ['all-linear'],
     excluded_modules: List[str] = ['classifier'],
-    pre_quantized_weights: Dict = None
+    pre_quantized_weights: Dict = None,
+    true_quantization: bool = False
 ) -> nn.Module:
     """
     Convert a torch.nn.Linear layer in to a custom LoraLinearLayer and reapplies precomputed quantized values and low-rank decomposition
@@ -282,17 +357,94 @@ def requantize_linear_layer(
         
         if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
             to_update.append((name, module))
-            print(f"Converting {name} layer")
+            print(f"Will convert {name} layer with {'true' if true_quantization else 'simulated'} quantization")
     
     for name, module in to_update:
-        setattr(
-            model,
-            name,
-            LoraLinearLayer(
+        if name not in pre_quantized_weights:
+            print(f"Warning: No precomputed weights found for {name}, skipping")
+            continue
+        
+        weights_info = pre_quantized_weights[name]
+        
+        if true_quantization:
+            if 'qweight' in weights_info and 'weight_max' in weights_info:
+                new_layer = TrueQuantizedLinear(
+                    module,
+                    quantization_bits=weights_info.get('quantization_bits', 4),
+                    reduced_rank=weights_info.get('reduced_rank', 16),
+                    quantization_method=weights_info.get('quantization_method', 'uniform')
+                )
+                
+                print(weights_info['qweight'])
+                sys.exit()
+                new_layer.register_buffer("qweight", weights_info['qweight'])
+                new_layer.register_buffer("weight_max", weights_info['weight_max'])
+                new_layer.register_buffer("weight_shape", weights_info['weight_shape'])
+            else:
+                print(f"Warning: Incomplete quantization info for {name}, cannot create TrueQuantLinearLayer")
+                continue
+        else:
+            new_layer = LoraLinearLayer(
                 module,
-                pre_quantized_weights=pre_quantized_weights[name]
+                quantization_bits=weights_info.get('quantization_bits', 4),
+                reduced_rank=weights_info.get('reduced_rank', 16),
+                quantization_method=weights_info.get('quantization_method', 'uniform')
             )
-        )
+            
+            # Set the dequantized parameters
+            if 'dequantized_weight' in weights_info:
+                new_layer.base_layer.weight.data = weights_info['dequantized_weight']
+            
+        if 'lora_A' in weights_info and 'lora_B' in weights_info:
+            new_layer.lora_A.weight.data = weights_info['lora_A']
+            new_layer.lora_B.weight.data = weights_info['lora_B']
+            
+        if new_layer.has_bias and 'bias' in weights_info:
+            new_layer.bias.data = weights_info['bias']
+                
+        # Replace the module
+        parent_name = '.'.join(name.split('.')[:-1])
+        child_name = name.split('.')[-1]
+        
+        if parent_name:
+            parent = model.get_submodule(parent_name)
+            setattr(parent, child_name, new_layer)
+        else:
+            setattr(model, child_name, new_layer)
 
     return model
+
+def analyze_model_memory(model):
+    total_params = 0
+    quant_params = 0
+    quant_bytes = 0
+    lora_params = 0
+    other_params = 0
+    
+    for name, module in model.named_modules():
+        if isinstance(module, TrueQuantizedLinear):
+            # Quantized layer
+            if hasattr(module, 'qweight'):
+                quant_params += module.in_features * module.out_features
+                quant_bytes += module.qweight.numel() * module.qweight.element_size()
+            # LoRA adapters
+            lora_params += module.lora_A.weight.numel() + module.lora_B.weight.numel()
+        elif isinstance(module, LoraLinearLayer):
+            if hasattr(module, 'base_layer'):
+                param_count = module.base_layer.weight.numel()
+                total_params += param_count
+                other_params += param_count
+            # LoRA adapters
+            lora_params += module.lora_A.weight.numel() + module.lora_B.weight.numel()
+        elif isinstance(module, nn.Linear):
+            # Regular linear layer
+            if hasattr(module, 'weight'):
+                param_count = module.weight.numel()
+                total_params += param_count
+                other_params += param_count
+    
+    print(f"Quantized parameters: {quant_params:,} ({quant_bytes/(1024**2):.2f}MB)")
+    print(f"LoRA parameters: {lora_params:,} ({lora_params*2/(1024**2):.2f}MB)")
+    print(f"Other parameters: {other_params:,} ({other_params*2/(1024**2):.2f}MB)")
+    print(f"Total: {other_params + quant_params + lora_params:,} ({((other_params*2) + quant_bytes + (lora_params*2))/(1024**2):.2f}MB)")
     

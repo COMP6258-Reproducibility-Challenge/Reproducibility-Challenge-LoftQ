@@ -6,7 +6,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2Se
 from peft import TaskType
 import torch
 
-from loftq import convert_linear_layer, LoraLinearLayer
+from loftq import convert_linear_layer, LoraLinearLayer, TrueQuantizedLinear, BaseLoftqLinear
 
 from arguments import ModelArguments
 
@@ -102,15 +102,20 @@ def quantize_model(model: Union[PreTrainedModel, torch.nn.Module], model_args: M
     model = convert_linear_layer(
         model,
         quantization_bits=model_args.int_bit,
-        # target_modules=allow_name,
         rank=model_args.reduced_rank,
         quantization_method=model_args.quant_method,
         target_modules=target_modules,
-        excluded_modules=excluded_modules
+        excluded_modules=excluded_modules,
+        true_quantization=model_args.true_quantization
     )
     return model
 
-def save_quantized_model(model: Union[PreTrainedModel, torch.nn.Module], tokenizer: AutoTokenizer, save_path: str, model_args: ModelArguments = None):
+def save_quantized_model(
+    model: Union[PreTrainedModel, torch.nn.Module], 
+    tokenizer: AutoTokenizer, 
+    save_path: str, 
+    model_args: ModelArguments = None
+):
     logging.warning("Saving quantized model")
     os.makedirs(save_path, exist_ok=True)
     if model_args is not None:
@@ -120,7 +125,14 @@ def save_quantized_model(model: Union[PreTrainedModel, torch.nn.Module], tokeniz
     
     if isinstance(model, PreTrainedModel):
         # For HuggingFace models
-        model.save_pretrained(model_dir)
+        try:
+            model.save_pretrained(model_dir)
+        except RuntimeError as e:
+            logging.warning(f"Error during save_pretrained: {e}")
+            logging.warning("Falling back to custom saving method")
+            # Save config separately
+            if hasattr(model, 'config'):
+                model.config.save_pretrained(model_dir)
     else:
         # For regular PyTorch models
         torch.save(model.state_dict(), os.path.join(model_dir, f"loftq_model.pt"))
@@ -128,14 +140,15 @@ def save_quantized_model(model: Union[PreTrainedModel, torch.nn.Module], tokeniz
     loftq_state_dict = {}
     module_mapping = {}
     for name, module in model.named_modules():
-        if isinstance(module, LoraLinearLayer):
-            # Save LoFTQ specific parameters
-            loftq_state_dict[f"{name}.base_layer_weight"] = module.base_layer.weight.data
-            loftq_state_dict[f"{name}.lora_A"] = module.lora_A.weight.data
-            loftq_state_dict[f"{name}.lora_B"] = module.lora_B.weight.data
-            # loftq_state_dict[f"{name}.quantization_bits"] = module.quantization_bits
-            # loftq_state_dict[f"{name}.reduced_rank"] = module.reduced_rank
+        if issubclass(type(module), BaseLoftqLinear):
+            module_state = {
+                "lora_A": module.lora_A.weight.data,
+                "lora_B": module.lora_B.weight.data
+            }
             
+            if module.has_bias and module.bias is not None:
+                module_state["bias"] = module.bias.data
+                
             module_mapping[name] = {
                 "type": "LoraLinearLayer",
                 "in_features": module.in_features,
@@ -145,6 +158,19 @@ def save_quantized_model(model: Union[PreTrainedModel, torch.nn.Module], tokeniz
                 'num_iters': module.num_iters,
                 'quantization_method': module.quantization_method,
             }
+            
+            if isinstance(module, LoraLinearLayer):
+                module_state["base_layer_weight"] = module.base_layer.weight.data
+                module_mapping[name]["type"] = "LoraLinearLayer"
+            elif isinstance(module, TrueQuantizedLinear):
+                # Save TrueQuantLinearLayer specific parameters
+                module_state["qweight"] = module.qweight
+                module_state["weight_max"] = module.weight_max
+                module_state["weight_shape"] = module.weight_shape
+            
+                module_mapping[name]["type"] = "TrueQuantLinearLayer"
+            
+            loftq_state_dict[name] = module_state
         
     torch.save(loftq_state_dict, os.path.join(model_dir, f"loftq_weights.pt"))
     torch.save(module_mapping, os.path.join(model_dir, f"loftq_mapping.pt"))
@@ -170,20 +196,19 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
     
     # First replace all mapped linear layers with LoFTQLayer
     for name, module_info in module_mapping.items():
-        if module_info["type"] == "LoraLinearLayer":
-            parent_name = ".".join(name.split(".")[:-1])
-            module_name = name.split(".")[-1]
+        parent_name = ".".join(name.split(".")[:-1])
+        module_name = name.split(".")[-1]
+        
+        if not parent_name:
+            parent = model
+        else:
+            parent = model.get_submodule(parent_name)
+        
+        # Get the original linear layer
+        try:
+            original_module = parent.get_submodule(module_name)
             
-            if not parent_name:
-                parent = model
-            else:
-                parent = model.get_submodule(parent_name)
-            
-            # Get the original linear layer
-            try:
-                original_module = parent.get_submodule(module_name)
-                
-                # Create a new LoFTQLayer
+            if module_info["type"] == "LoraLinearLayer":
                 loftq_layer = LoraLinearLayer(
                     base_layer=original_module if isinstance(original_module, torch.nn.Linear) else torch.nn.Linear(
                         module_info["in_features"],
@@ -195,29 +220,61 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
                     num_iters=module_info["num_iters"],
                     quantization_method=module_info["quantization_method"]
                 )
-                
-                # Replace the module
-                setattr(parent, module_name, loftq_layer)
-            except AttributeError:
-                print(f"Warning: Module {module_name} not found in {parent_name}")
+            elif module_info["type"] == "TrueQuantLinearLayer":
+                loftq_layer = TrueQuantizedLinear(
+                    base_layer=original_module if isinstance(original_module, torch.nn.Linear) else torch.nn.Linear(
+                        module_info["in_features"],
+                        module_info["out_features"],
+                        bias=hasattr(original_module, 'bias') and original_module.bias is not None
+                    ),
+                    quantization_bits=module_info["quantization_bits"],
+                    reduced_rank=module_info["reduced_rank"],
+                    num_iters=module_info.get("num_iters", 5),
+                    quantization_method=module_info["quantization_method"]
+                )
+            else:
+                logging.warning(f"Unknown layer type: {module_info['type']}")
+                continue
+            
+            setattr(parent, module_name, loftq_layer)
+        except AttributeError:
+            print(f"Warning: Module {module_name} not found in {parent_name}")
                 
     loftq_state_dict = torch.load(os.path.join(model_dir, f"loftq_weights.pt"))
-        
+    
     with torch.no_grad():
-        for name, param in loftq_state_dict.items():
-            if isinstance(param, torch.Tensor):
-                # Get the parameter from the model and assign the loaded value
-                module_path = name.rsplit(".", 1)[0]  # Get module path without parameter name
-                param_name = name.split(".")[-1]  # Get parameter name
-                
-                try:
-                    module = model.get_submodule(module_path)
-                    if "base_layer" in param_name:
-                        getattr(module, 'base_layer').weight.copy_(param)
-                    elif hasattr(module, param_name):
-                        getattr(module, param_name).weight.copy_(param)
-                except AttributeError as e:
-                    print(f"Warning: Could not set parameter {name}")
+        for module_name, params in loftq_state_dict.items():
+            module = model.get_submodule(module_name)
+            if isinstance(module, TrueQuantizedLinear) and not "qweight" in params:
+                raise Exception("Trying to load true quantized layer without quantized weight")
+            if isinstance(module, LoraLinearLayer) and not "base_layer_weight" in params:
+                raise Exception("Trying to load simulated quantized layer without dequantized base layer weight")
+            
+            for param_name, param in params.items():
+                if isinstance(param, torch.Tensor):                    
+                    try:
+                            
+                        if param_name == "base_layer_weight":
+                            # For LoraLinearLayer
+                            module.base_layer.weight.copy_(param)
+                        elif param_name in ["qweight", "weight_max", "weight_shape"]:
+                            # For TrueQuantLinearLayer buffers
+                            module.register_buffer(param_name, param)
+                        elif param_name == "bias":
+                            # For bias
+                            if hasattr(module, 'bias') and module.bias is not None:
+                                module.bias.copy_(param)
+                        elif param_name == "lora_A":
+                            # For lora_A weights
+                            module.lora_A.weight.copy_(param.t())
+                        elif param_name == "lora_B":
+                            # For lora_B weights
+                            module.lora_B.weight.copy_(param)
+                        elif hasattr(module, param_name):
+                            # For other attributes
+                            getattr(module, param_name).copy_(param)
+                    except (AttributeError, ValueError) as e:
+                        logging.warning(f"Warning: Could not set parameter {name}: {e}")
                     
     target_modules, excluded_modules = get_target_excluded_modules(model_args.model_name_or_path)    
 
