@@ -604,7 +604,7 @@ if __name__ == "__main__":
     parser = transformers.HfArgumentParser((BaseArguments, ModelArguments, DataArguments, TrainingArguments))
     base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         
-    raw_data, labels, num_labels = load_raw_dataset(data_args.data_name, data_args.task_name)
+    # raw_data, labels, num_labels = load_raw_dataset(data_args.data_name, data_args.task_name)
     
     if not base_args.from_saved:
     

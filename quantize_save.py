@@ -132,8 +132,9 @@ def quantize_and_save():
             torch_dtype=torch.bfloat16,
             token=args.token,
             trust_remote_code=True,
-            device_map="auto",
+            #device_map="auto",
         )
+        model.to('cuda') # <-- Add this line
         task_type = TaskType.CAUSAL_LM
         target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj", "gate_proj"]
 
