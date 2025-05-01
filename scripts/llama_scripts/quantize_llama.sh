@@ -50,7 +50,7 @@ PROJECT_DIR="${HOME}/LoftQ_Private"
 # Path where you downloaded the original Llama-2 model using download_model.py
 DOWNLOADED_MODEL_PATH="/mainfs/scratch/be1g21/models/llama-2-7b-hf"
 # Path where the output (quantized model + adapters) will be saved
-QUANTIZED_SAVE_DIR="/mainfs/scratch/be1g21/models/llama_7b_4bit_64rank/" # Be specific
+QUANTIZED_SAVE_DIR="/mainfs/scratch/be1g21/quantized_models/llama_7b_4bit_64rank/" # Be specific
 
 echo "Project Directory:       ${PROJECT_DIR}"
 echo "Downloaded Model Path:   ${DOWNLOADED_MODEL_PATH}"
@@ -72,7 +72,7 @@ echo ""
 # --- Navigate to Project Directory ---
 echo "Changing to project directory: ${PROJECT_DIR}"
 cd ${PROJECT_DIR}
-if [ $? -ne 0 ]; then
+if [ $? -ne 0 ]; thenS
     echo "ERROR: Failed to change directory to: ${PROJECT_DIR}"
     exit 1
 fi
