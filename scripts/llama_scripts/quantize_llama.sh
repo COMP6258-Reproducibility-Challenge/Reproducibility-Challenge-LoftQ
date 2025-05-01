@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH -J llama7b_quant_loftq  # Job name (e.g., llama7b_quant_loftq)
+#SBATCH -J llama7b  # Job name (e.g., llama7b_quant_loftq)
 #SBATCH -p gpu                  # Partition: REPLACE <partition_name> with the one containing V100s (e.g., 'gpu', 'v100')
                                 # Or fallback to the partition with GTX1080Ti (e.g., 'gtx', 'gpu')
 #SBATCH --mem=64G               # System memory request (64GB should be safe for loading)
@@ -7,7 +7,7 @@
 #SBATCH --nodes=1               # Request 1 node
 #SBATCH -c 8                    # Request 8 CPU cores (adjust if needed, usually 4-8 is fine)
 #SBATCH --mail-type=ALL         # Send email on job BEGIN, END, FAIL
-#SBATCH --mail-user=YOUR_UNI_EMAIL@soton.ac.uk # <<< REPLACE THIS WITH YOUR EMAIL
+#SBATCH --mail-user=be1g21@soton.ac.uk # <<< REPLACE THIS WITH YOUR EMAIL
 #SBATCH --time=02:00:00         # Time limit (HH:MM:SS) - 2 hours should be safe, adjust if needed
 
 echo "========================================================"
@@ -50,7 +50,7 @@ PROJECT_DIR="${HOME}/LoftQ_Private"
 # Path where you downloaded the original Llama-2 model using download_model.py
 DOWNLOADED_MODEL_PATH="/mainfs/scratch/be1g21/models/llama-2-7b-hf"
 # Path where the output (quantized model + adapters) will be saved
-QUANTIZED_SAVE_DIR="/mainfs/scratch/be1g21/quantized_models/llama_7b_4bit_64rank/" # Be specific
+QUANTIZED_SAVE_DIR="/mainfs/scratch/be1g21/models/llama_7b_4bit_64rank/" # Be specific
 
 echo "Project Directory:       ${PROJECT_DIR}"
 echo "Downloaded Model Path:   ${DOWNLOADED_MODEL_PATH}"
