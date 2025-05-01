@@ -1,0 +1,63 @@
+Running SLURM prolog script on pink52.cluster.local
+===============================================================================
+Job started on Thu May  1 16:16:17 BST 2025
+Job ID          : 7354887
+Job name        : llama7b_quant
+WorkDir         : /mainfs/lyceum/be1g21/LoftQ_Private/scripts/llama_scripts
+Command         : /mainfs/lyceum/be1g21/LoftQ_Private/scripts/llama_scripts/quantize.sh
+Partition       : lyceum
+Num hosts       : 1
+Num cores       : 16
+Num of tasks    : 1
+Hosts allocated : pink52
+Job Output Follows ...
+===============================================================================
+[2025-05-01 16:16:53,645] [INFO] [real_accelerator.py:239:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:00<00:00,  8.43it/s]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:00<00:00,  8.25it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00,  9.07it/s]
+Traceback (most recent call last):
+  File "/mainfs/lyceum/be1g21/LoftQ_Private/./quantize_save.py", line 206, in <module>
+    base_dir, lora_dir = quantize_and_save()
+                         ^^^^^^^^^^^^^^^^^^^
+  File "/mainfs/lyceum/be1g21/LoftQ_Private/./quantize_save.py", line 137, in quantize_and_save
+    model.to('cuda') # <-- Add this line
+    ^^^^^^^^^^^^^^^^
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/transformers/modeling_utils.py", line 3698, in to
+    return super().to(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1343, in to
+    return self._apply(convert)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  [Previous line repeated 2 more times]
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/torch/nn/modules/module.py", line 930, in _apply
+    param_applied = fn(param)
+                    ^^^^^^^^^
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1329, in convert
+    return t.to(
+           ^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 86.00 MiB. GPU 0 has a total capacity of 10.91 GiB of which 60.06 MiB is free. Including non-PyTorch memory, this process has 10.85 GiB memory in use. Of the allocated memory 10.72 GiB is allocated by PyTorch, and 1.58 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[3;J[H[2J==============================================================================
+Running epilogue script on pink52.
+
+Submit time  : 2025-05-01T16:16:16
+Start time   : 2025-05-01T16:16:17
+End time     : 2025-05-01T16:17:12
+Elapsed time : 00:00:55 (Timelimit=2-00:00:00)
+
+Job ID: 7354887
+Cluster: i5
+User/Group: be1g21/fp
+State: FAILED (exit code 1)
+Nodes: 1
+Cores per node: 16
+CPU Utilized: 00:00:26
+CPU Efficiency: 2.95% of 00:14:40 core-walltime
+Job Wall-clock time: 00:00:55
+Memory Utilized: 467.89 MB
+Memory Efficiency: 0.00% of 16.00 B
+
