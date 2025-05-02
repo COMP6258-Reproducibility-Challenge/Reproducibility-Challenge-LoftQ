@@ -29,3 +29,40 @@ class LoFTQTrainer(Trainer):
         
         # Use custom save function
         save_quantized_model(self.model, output_dir)
+
+
+def index_dim(tensor, dim, start, block_size):
+    """
+    Indexes the tensor along a specified dimension with a specified starting element and ending element
+    Args:
+        tensor: tensor to index
+        dim: specified dimension
+        start: start element index within the dimension
+        block_size: end element index within the dimension
+
+    Returns:
+        a slice of the tensor along dimension dim
+    """
+    # Create slice objects for all dimensions
+    slices = [slice(None)] * tensor.dim()
+
+    # Replace the slice for dim with the desired range
+    slices[dim] = slice(start, start + block_size)
+
+    # Index the tensor
+    return tensor[tuple(slices)]
+
+
+def max_dim(m):
+    """
+    Finds the dimension with the most amount of elements in a tensor and the number of elements
+    inside that dimension inside a tuple.
+    Args:
+        m: input tensor
+
+    Returns:
+        Tuple of the form (dim, numel)
+    """
+    if m.dim() <= 1:
+        return -m.dim(), max(m.shape) if m.dim() == 1 else 0
+    return min(range(-m.dim(), -1), key=lambda d: -(m.shape[d] + 1)), max(m.shape)
