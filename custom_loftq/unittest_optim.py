@@ -82,7 +82,7 @@ class TestSafeBroadcastSubtract(unittest.TestCase):
         A = torch.randn(10, 20).t()  # Transposed, non-contiguous
         B = torch.randn(10, 1)
         self.assertRaises(Exception, lambda x: A - B)
-        self.assertRaises(Exception, lambda x: safe_subtract_argmin(A, B, 16))
+        self.assertRaises(Exception, lambda x: BlockQuantizer.safe_subtract_argmin(A, B, 16))
 
     def test_mixed_dtypes(self):
         A = torch.randn(16, 16, dtype=torch.float64)
