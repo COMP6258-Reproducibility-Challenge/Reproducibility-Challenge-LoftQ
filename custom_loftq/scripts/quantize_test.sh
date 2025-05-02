@@ -17,7 +17,7 @@ accelerate launch \
   --loftq \
   --reduced_rank 64 \
   --num_iter 1 \
-  --int_bit 16 \
+  --int_bit 8 \
   --gradient_accumulation_steps 4 \
   --true_quantization
 

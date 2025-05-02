@@ -226,12 +226,12 @@ class BlockQuantizer:
         return values
 
     @staticmethod
-    def safe_broadcast_subtract(a: torch.Tensor, b: torch.Tensor, block_size: int = 4096) -> torch.Tensor:
+    def safe_subtract_argmin(a: torch.Tensor, b: torch.Tensor, block_size: int = 4096) -> torch.Tensor:
         """
-        Perform memory-efficient broadcasted subtraction (A - B), chunking both A and B if needed, and storing the
-        result on the CPU to minimize GPU memory usage. Note: if safe_broadcast_subtract() takes too long to compute,
-        you can increase the block size to allow for more usage of GPU; if safe_broadcast_subtract() fails with CUDA
-        out of memory, you can decrease the block size.
+        Perform memory-efficient version of the opearation argmin(abs(A - B)), chunking both A and B if needed, and
+        storing the result on the CPU to minimize GPU memory usage. Note: if safe_broadcast_subtract() takes too long
+        to compute, you can increase the block size to allow for more usage of GPU; if safe_broadcast_subtract() fails
+        with CUDA out of memory, you can decrease the block size.
 
         Parameters
         ----------
@@ -242,10 +242,9 @@ class BlockQuantizer:
         block_size : int
             Max block size along the largest dimension. Default: 4096.
         """
-
         # Ensure A is always bigger than b
         if a.numel() < b.numel():
-            BlockQuantizer.safe_broadcast_subtract(-b, a, block_size)
+            BlockQuantizer.safe_subtract_argmin(-b, a, block_size)
 
         # dimension with max number of elements in A (in reverse order)
         # Number of elements in dimension max_dim_A
@@ -255,7 +254,7 @@ class BlockQuantizer:
         # Number of elements in dimension max_dim_B
         max_dim_B, max_num_B = utils.max_dim(a)
 
-        end_shape = torch.broadcast_shapes(a.shape, b.shape)
+        # List that stores the argmin blocks
         result_list = []
 
         for start in range(0, max_num_A, block_size):
@@ -277,12 +276,14 @@ class BlockQuantizer:
             else:
                 b_chunk = utils.index_dim(b, max_dim_B, start, block_size)
 
-            # Subtract, compute abs() and move to CPU
-            result_list.append(torch.abs(a_chunk - b_chunk).to("cpu"))
+            # Subtract, compute abs(), compute argmin(), and move to CPU
+            temp = torch.argmin(torch.abs(a_chunk - b_chunk), dim=-1, keepdim=True).to("cpu")
+            result_list.append(temp)
 
         if len(result_list) == 0:
-            return torch.zeros(end_shape)
-        return torch.cat(result_list, dim=max_dim_A)
+            return torch.zeros(0)
+
+        return torch.squeeze(torch.cat(result_list, dim=max_dim_A))
 
 
 
@@ -317,16 +318,15 @@ class BlockQuantizer:
         L_reshaped = self.norm_lookup_table.reshape(1, -1)  # (1, 2**K)
         print(f"Tensor shapes: (L = {L_reshaped.shape}, weight = {weight_divabs.shape})")
         print("performing safe broadcasting ... ")
-        # abs_diff = weight_divabs - L_reshaped
-        # abs_diff = torch.abs(abs_diff)
-        abs_diff = BlockQuantizer.safe_broadcast_subtract(weight_divabs, L_reshaped, 128)   # (L, B, 2**K)
+        # # abs_diff = weight_divabs - L_reshaped
+        # # abs_diff = torch.abs(abs_diff)
+        # abs_diff = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128)   # (L, B, 2**K)
+        # # qweight = torch.argmin(abs_diff, dim=-1).to(self.device)  # (L, B)
+        qweight = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128).to(self.device)
+        print(qweight.shape)
         print("Done\n")
-
-        print("Calculating argmin ... ")
-        qweight = torch.argmin(abs_diff, dim=-1).to(self.device)  # (L, B)
-        print("Done\n")
-        del abs_diff
         del weight_divabs
+        del L_reshaped
 
         # Pack multiple k-bit into uint8
         qweight = qweight.reshape(-1, 8 // self.num_bits)

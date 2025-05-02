@@ -10,10 +10,17 @@ class TestSafeBroadcastSubtract(unittest.TestCase):
         """Helper to compare safe_broadcast_subtract result with standard subtraction."""
         A_gpu = A.to('cuda')
         B_gpu = B.to('cuda')
-        expected = torch.abs((A - B)).cpu()
-        result = BlockQuantizer.safe_broadcast_subtract(A_gpu, B_gpu)
-        self.assertTrue(torch.equal(result, expected),
-                        msg=f"Mismatch for shapes {A.shape} - {B.shape}")
+        expected = torch.argmin(torch.abs(A - B), dim=-1).cpu()
+        result1 = BlockQuantizer.safe_subtract_argmin(A_gpu, B_gpu, block_size=4)
+        result2 = BlockQuantizer.safe_subtract_argmin(A_gpu, B_gpu, block_size=4096)
+        self.assertTrue(
+            torch.equal(result1, expected),
+            msg=f"\nExpected :\n\t{expected} \nResult: \n\t{result1}",
+        )
+        self.assertTrue(
+            torch.equal(result2, expected),
+            msg=f"\nExpected :\n\t{expected} \nResult: \n\t{result2}",
+        )
 
     def test_basic(self):
         A = torch.randn(1024, 64, 1)
@@ -75,7 +82,7 @@ class TestSafeBroadcastSubtract(unittest.TestCase):
         A = torch.randn(10, 20).t()  # Transposed, non-contiguous
         B = torch.randn(10, 1)
         self.assertRaises(Exception, lambda x: A - B)
-        self.assertRaises(Exception, lambda x: BlockQuantizer.safe_broadcast_subtract(A, B, 16))
+        self.assertRaises(Exception, lambda x: safe_subtract_argmin(A, B, 16))
 
     def test_mixed_dtypes(self):
         A = torch.randn(16, 16, dtype=torch.float64)
