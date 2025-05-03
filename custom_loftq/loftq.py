@@ -366,12 +366,16 @@ class BlockQuantizer:
     def dequantize_block(self, qweight, weight_max, weight_shape):
         # unpack weight
         device = qweight.device
-        weight = torch.zeros((qweight.shape[0], 8 // self.num_bits), dtype=torch.float32, device=device)
-        for i in range(8 // self.num_bits):
-            lookup_table_idx = qweight.to(torch.long) % 2**self.num_bits  # get the most right 2 bits
-            lookup_table_idx = lookup_table_idx.to(torch.long)
-            weight[:, i] = self.norm_lookup_table[lookup_table_idx].squeeze()
-            qweight = qweight >> self.num_bits  # right shift 2 bits of the original data
+        if self.num_bits < 8:
+            bits_per_byte = 8 // self.num_bits
+            weight = torch.zeros((qweight.shape[0], bits_per_byte), dtype=torch.float32, device=device)
+            for i in range(bits_per_byte):
+                lookup_table_idx = qweight.to(torch.long) % 2**self.num_bits
+                weight[:, i] = self.norm_lookup_table[lookup_table_idx].squeeze()
+                qweight = qweight >> self.num_bits
+        else:
+            lookup_table_idx = qweight.squeeze().long()
+            weight = self.norm_lookup_table[lookup_table_idx].reshape(-1, 1)
 
         weight_block = weight.reshape(-1, self.block_size)
         weight = weight_block * weight_max
