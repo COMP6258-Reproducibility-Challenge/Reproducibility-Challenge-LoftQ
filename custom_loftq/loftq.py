@@ -15,6 +15,7 @@ else:
 
 import utils
 
+# import time
 
 class BaseLoftqLinear(nn.Module):
     def __init__(
@@ -244,7 +245,7 @@ class BlockQuantizer:
         """
         # Ensure A is always bigger than b
         if a.numel() < b.numel():
-            BlockQuantizer.safe_subtract_argmin(-b, a, block_size)
+            return BlockQuantizer.safe_subtract_argmin(-b, -a, block_size)
 
         # dimension with max number of elements in A (in reverse order)
         # Number of elements in dimension max_dim_A
@@ -288,6 +289,7 @@ class BlockQuantizer:
 
 
     def quantize_block(self, weight, num_std=2.5):
+        # start_time = time.time()
         if len(weight.shape) != 2:
             raise ValueError(f"Only support 2D matrix, but your input has {len(weight.shape)} dimensions.")
         if weight.shape[0] * weight.shape[1] % self.block_size != 0:
@@ -300,7 +302,6 @@ class BlockQuantizer:
         device = weight.device
 
         # Quantization
-        print("Quantization begins")
         weight = weight.flatten()  # (M*N, )
         weight_block = weight.reshape(-1, self.block_size)  # (L, B), L = M * N / B
         if self.method == "normal":
@@ -316,28 +317,15 @@ class BlockQuantizer:
 
         weight_divabs = weight_divabs.unsqueeze(-1)  # (L, B, 1)
         L_reshaped = self.norm_lookup_table.reshape(1, -1)  # (1, 2**K)
-        print(f"Tensor shapes: (L = {L_reshaped.shape}, weight = {weight_divabs.shape})")
-        print("performing safe broadcasting ... ")
-        # # abs_diff = weight_divabs - L_reshaped
-        # # abs_diff = torch.abs(abs_diff)
-        # abs_diff = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128)   # (L, B, 2**K)
-        # # qweight = torch.argmin(abs_diff, dim=-1).to(self.device)  # (L, B)
-        qweight = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, self.block_size).to(self.device)
-        print(qweight.shape)
-        print("Done\n")
+        # print(f"Tensor shapes: (L = {L_reshaped.shape}, weight = {weight_divabs.shape})")
+        # print("performing safe broadcasting ... ")
+        qweight = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128).to(self.device)
+        # print(qweight.shape)
+        # print("Done\n")
         del weight_divabs
         del L_reshaped
 
-        # # Pack multiple k-bit into uint8
-        # qweight = qweight.reshape(-1, 8 // self.num_bits)
-        # qweight_pack = torch.zeros((M * N // 8 * self.num_bits, 1), dtype=torch.uint8, device=device)
-
-        # # data format example:
-        # # [1, 0, 3, 2] or [01, 00, 11, 10]  -> [10110001], LIFO
-        # for i in range(8 // self.num_bits):
-        #     qweight[:, i] = qweight[:, i] << i * self.num_bits
-        #     qweight_pack[:, 0] |= qweight[:, i]
-            
+        # Convert bits
         if self.num_bits < 8:
             # Pack multiple k-bit into uint8
             bits_per_byte = 8 // self.num_bits
@@ -359,6 +347,8 @@ class BlockQuantizer:
             else:
                 qweight_pack = qweight
 
+        # end_time = time.time()
+        # print(f"Time used = {(end_time - start_time) / 60} minutes")
         return qweight_pack, weight_max.to(self.device), (M, N)  # weight.shape
 
 
