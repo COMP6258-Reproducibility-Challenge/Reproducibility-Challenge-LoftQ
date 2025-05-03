@@ -52,7 +52,7 @@ if __name__ == "__main__":
                 raw_data['validation_matched'] = classification_utils.create_reduced_dataset(raw_data["validation_matched"], labels, num_examples=3)
                 raw_data['validation_mismatched'] = classification_utils.create_reduced_dataset(raw_data["validation_mismatched"], labels, num_examples=3)
             else:
-                raw_data['validation'] = classification_utils.create_reduced_dataset(raw_data["validation_"], labels, num_examples=3)
+                raw_data['validation'] = classification_utils.create_reduced_dataset(raw_data["validation"], labels, num_examples=3)
                 
             classification_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
         else:

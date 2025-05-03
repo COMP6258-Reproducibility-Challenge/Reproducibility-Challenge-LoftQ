@@ -328,15 +328,36 @@ class BlockQuantizer:
         del weight_divabs
         del L_reshaped
 
-        # Pack multiple k-bit into uint8
-        qweight = qweight.reshape(-1, 8 // self.num_bits)
-        qweight_pack = torch.zeros((M * N // 8 * self.num_bits, 1), dtype=torch.uint8, device=device)
+        # # Pack multiple k-bit into uint8
+        # qweight = qweight.reshape(-1, 8 // self.num_bits)
+        # qweight_pack = torch.zeros((M * N // 8 * self.num_bits, 1), dtype=torch.uint8, device=device)
 
-        # data format example:
-        # [1, 0, 3, 2] or [01, 00, 11, 10]  -> [10110001], LIFO
-        for i in range(8 // self.num_bits):
-            qweight[:, i] = qweight[:, i] << i * self.num_bits
-            qweight_pack[:, 0] |= qweight[:, i]
+        # # data format example:
+        # # [1, 0, 3, 2] or [01, 00, 11, 10]  -> [10110001], LIFO
+        # for i in range(8 // self.num_bits):
+        #     qweight[:, i] = qweight[:, i] << i * self.num_bits
+        #     qweight_pack[:, 0] |= qweight[:, i]
+            
+        if self.num_bits < 8:
+            # Pack multiple k-bit into uint8
+            bits_per_byte = 8 // self.num_bits
+            qweight = qweight.reshape(-1, bits_per_byte)
+            qweight_pack = torch.zeros((M * N // bits_per_byte, 1), dtype=torch.uint8, device=device)
+            
+            for i in range(bits_per_byte):
+                qweight[:, i] = qweight[:, i] << i * self.num_bits
+                qweight_pack[:, 0] |= qweight[:, i]
+        elif self.num_bits == 8:
+            # For 8-bit, direct conversion
+            qweight_pack = qweight.byte().reshape(-1, 1)
+        else:
+            # For larger than 8 bits, use appropriate dtype
+            if self.num_bits == 16:
+                qweight_pack = qweight.short()
+            elif self.num_bits == 32:
+                qweight_pack = qweight.int()
+            else:
+                qweight_pack = qweight
 
         return qweight_pack, weight_max.to(self.device), (M, N)  # weight.shape
 
