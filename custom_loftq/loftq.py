@@ -322,7 +322,7 @@ class BlockQuantizer:
         # # abs_diff = torch.abs(abs_diff)
         # abs_diff = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128)   # (L, B, 2**K)
         # # qweight = torch.argmin(abs_diff, dim=-1).to(self.device)  # (L, B)
-        qweight = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128).to(self.device)
+        qweight = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, self.block_size).to(self.device)
         print(qweight.shape)
         print("Done\n")
         del weight_divabs

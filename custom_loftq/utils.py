@@ -6,7 +6,7 @@ import logging
 from transformers import Trainer
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, load_dataset
 
-from model_utils import save_quantized_model
+from model_utils import save_quantized_model, get_model_dir
 
 def load_raw_dataset(dataset_name: str, task_name: str) -> Tuple[Union[DatasetDict, Dataset, IterableDatasetDict, IterableDataset], Set, int]:
     logging.warning("Loading raw dataset")
@@ -66,3 +66,10 @@ def max_dim(m):
     if m.dim() <= 1:
         return -m.dim(), max(m.shape) if m.dim() == 1 else 0
     return min(range(-m.dim(), -1), key=lambda d: -(m.shape[d] + 1)), max(m.shape)
+
+def get_trained_save_dir(model_args, data_name, task_name):
+    save_dir = "trained_models"
+    save_dir = os.path.join(save_dir, data_name)
+    if task_name != "main":
+        save_dir = os.path.join(save_dir, task_name)
+    return get_model_dir(save_dir, model_args)

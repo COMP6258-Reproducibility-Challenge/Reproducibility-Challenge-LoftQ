@@ -1,12 +1,12 @@
 from functools import partial
 import logging
+import os
 
 import numpy as np
 
 import evaluate
 
-from model_utils import get_model_dir
-from utils import LoFTQTrainer
+from utils import LoFTQTrainer, get_trained_save_dir
 
 task_to_keys = {
     "cola": ("sentence", None),
@@ -113,7 +113,7 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
 
     # Step 11: Save the fine-tuned model
     print("Saving final fine-tuned model...")
-    model_dir = get_model_dir("trained_models", model_args)
+    model_dir = get_trained_save_dir(model_args, data_args.data_name, data_args.task_name)
     trainer.save_model(model_dir)
 
     print("Process completed!")
