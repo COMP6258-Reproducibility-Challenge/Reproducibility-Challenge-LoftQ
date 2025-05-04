@@ -59,9 +59,11 @@ def create_reduced_dataset(dataset, labels, num_examples=1000, seed=42):
 
 
 def preprocess_function(examples, tokenizer, sentence1_key, sentence2_key):
+    texts = (
+        (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
+    )
     return tokenizer(
-        examples[sentence1_key],
-        examples[sentence2_key],
+        *texts,
         padding="max_length",
         truncation=True,
         max_length=256
