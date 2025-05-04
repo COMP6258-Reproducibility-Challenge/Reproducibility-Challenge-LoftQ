@@ -26,6 +26,7 @@ class TestSafeBroadcastSubtract(unittest.TestCase):
         A = torch.randn(1024, 64, 1)
         B = torch.randn(1, 256)
         self.compare_with_standard(A, B)
+        self.compare_with_standard(B, A)
 
     def test_same_shape(self):
         A = torch.randn(10, 20)
@@ -55,14 +56,17 @@ class TestSafeBroadcastSubtract(unittest.TestCase):
         A = torch.randn(2, 3, 4, 5)
         B = torch.randn(1, 3, 1, 5)
         self.compare_with_standard(A, B)
+        self.compare_with_standard(B, A)
 
         C = torch.randn(2, 3, 4, 1)
         D = torch.randn(3, 1, 5)
         self.compare_with_standard(C, D)
+        self.compare_with_standard(D, C)
 
-        C = torch.randn(20, 30, 40, 50)
-        D = torch.randn(1, 30, 1, 50)
-        self.compare_with_standard(C, D)
+        E = torch.randn(20, 30, 40, 50)
+        F = torch.randn(1, 30, 1, 50)
+        self.compare_with_standard(E, F)
+        self.compare_with_standard(F, E)
 
     def test_singleton_dimension(self):
         A = torch.randn(1, 5, 1)
