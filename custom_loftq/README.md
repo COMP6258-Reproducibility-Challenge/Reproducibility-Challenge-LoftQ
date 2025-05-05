@@ -24,3 +24,22 @@ The training args are an extension of the default HF Transformers Training Args 
 
 # Current state
 Currently, I have done the work for the preprocessing and running of DeBertaV3-base on the Glue set. If you want to train on other things - eg gsm8k you will need to implement the preprocessing etc. Please do this in a similar way that I have by creating a seperate file or on your own branch to not mess anyone elses stuff up. For Glue I set up classification_utils.py - please do something similar. You will also need to edit or duplicate and edit run_loftq.py.
+
+# B16 commands
+Open an 'anaconda prompt'
+If does exist, install conda from https://www.anaconda.com/download/success
+
+Once open may need to conda init
+
+conda create -n loftq
+conda activate loftq
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+conda install nvidia::cuda-toolkit
+conda install nvidia::nvcc
+
+Until we find a fix - delete deepspeed from requirements.txt
+
+pip install -r requirements.txt
+accelerate config (this takes a while) - choose default options (except numa??)
+
+see example bat file unless you can figure out how to run .sh on these machines
