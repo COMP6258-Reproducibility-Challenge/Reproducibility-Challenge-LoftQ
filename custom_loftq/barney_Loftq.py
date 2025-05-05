@@ -369,7 +369,7 @@ class BlockQuantizer:
         values /= values.max()
         return values
 
-    @staticmethod
+
     def create_dynamic_normal_map(self, c_offset):
         if not (0.5 < c_offset < 1.0):
             raise ValueError(f"c_offset must be between 0.5 and 1.0, but got {c_offset}")

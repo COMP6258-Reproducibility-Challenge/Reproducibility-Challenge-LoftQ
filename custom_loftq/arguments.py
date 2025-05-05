@@ -59,7 +59,15 @@ class ModelArguments:
     )
     quant_method: Optional[str] = field(
         default="uniform",
-        metadata={"help": "Quantize method: uniform or nf"},
+        metadata={"help": "Quantization method: uniform | nf | adanf"},
+    )
+    adanf_pnorm: Optional[float] = field(
+        default=3.0,
+        metadata={"help": "p‑norm to minimise in AdaNF grid search (default 3)."},
+    )
+    adanf_grid_size: Optional[int] = field(
+        default=12,
+        metadata={"help": "\\Number of offset candidates per block (AdaNF).\\"},
     )
     loftq: Optional[bool] = field(
         default=False,

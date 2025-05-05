@@ -6,7 +6,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2Se
 from peft import TaskType
 import torch
 
-from loftq import convert_linear_layer, LoraLinearLayer, TrueQuantizedLinear, BaseLoftqLinear
+from loftq_adanf_fixed import convert_linear_layer, LoraLinearLayer, TrueQuantizedLinear, BaseLoftqLinear
 
 from arguments import ModelArguments
 
