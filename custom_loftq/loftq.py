@@ -11,6 +11,12 @@ elif torch.mps.is_available():
     compute_device = torch.device("mps")
 else:
     compute_device = torch.device("cpu")
+
+
+import utils
+
+# import time
+
 class BaseLoftqLinear(nn.Module):
     def __init__(
         self,
@@ -219,8 +225,71 @@ class BlockQuantizer:
         values = values.sort().values
         values /= values.max()
         return values
-    
+
+    @staticmethod
+    def safe_subtract_argmin(a: torch.Tensor, b: torch.Tensor, block_size: int = 4096) -> torch.Tensor:
+        """
+        Perform memory-efficient version of the opearation argmin(abs(A - B)), chunking both A and B if needed, and
+        storing the result on the CPU to minimize GPU memory usage. Note: if safe_broadcast_subtract() takes too long
+        to compute, you can increase the block size to allow for more usage of GPU; if safe_broadcast_subtract() fails
+        with CUDA out of memory, you can decrease the block size.
+
+        Parameters
+        ----------
+        a : torch.Tensor (on CUDA)
+            Left-hand tensor of subtraction. Must be at least 1D.
+        b : torch.Tensor (on CUDA)
+            Right-hand tensor. Must be broadcastable to A.
+        block_size : int
+            Max block size along the largest dimension. Default: 4096.
+        """
+        # Ensure A is always bigger than b
+        if a.numel() < b.numel():
+            return BlockQuantizer.safe_subtract_argmin(-b, -a, block_size)
+
+        # dimension with max number of elements in A (in reverse order)
+        # Number of elements in dimension max_dim_A
+        max_dim_A, max_num_A = utils.max_dim(a)
+
+        # dimension with max number of elements in B (in reverse order)
+        # Number of elements in dimension max_dim_B
+        max_dim_B, max_num_B = utils.max_dim(a)
+
+        # List that stores the argmin blocks
+        result_list = []
+
+        for start in range(0, max_num_A, block_size):
+            if a.numel() == 1:
+                a_chunk = a.item()
+            elif a.numel() == 0:
+                break
+            else:
+                a_chunk = utils.index_dim(a, max_dim_A, start, block_size)
+
+            if b.numel() == 1:
+                b_chunk = b.item()
+            elif b.numel() == 0:
+                break
+            elif max_dim_B != max_dim_A:
+                b_chunk = b
+            elif max_dim_B == max_dim_A and (len(b.shape) < len(a.shape) or b.shape[max_dim_A] == 1):
+                b_chunk = b
+            else:
+                b_chunk = utils.index_dim(b, max_dim_B, start, block_size)
+
+            # Subtract, compute abs(), compute argmin(), and move to CPU
+            temp = torch.argmin(torch.abs(a_chunk - b_chunk), dim=-1, keepdim=True).to("cpu")
+            result_list.append(temp)
+
+        if len(result_list) == 0:
+            return torch.zeros(0)
+
+        return torch.squeeze(torch.cat(result_list, dim=max_dim_A))
+
+
+
     def quantize_block(self, weight, num_std=2.5):
+        # start_time = time.time()
         if len(weight.shape) != 2:
             raise ValueError(f"Only support 2D matrix, but your input has {len(weight.shape)} dimensions.")
         if weight.shape[0] * weight.shape[1] % self.block_size != 0:
@@ -233,8 +302,8 @@ class BlockQuantizer:
         device = weight.device
 
         # Quantization
-        weight_flatten = weight.flatten()  # (M*N, )
-        weight_block = weight_flatten.reshape(-1, self.block_size)  # (L, B), L = M * N / B
+        weight = weight.flatten()  # (M*N, )
+        weight_block = weight.reshape(-1, self.block_size)  # (L, B), L = M * N / B
         if self.method == "normal":
             weight_max = weight_block.abs().max(dim=-1)[0]  # (L, 1)
         elif self.method == "uniform":
@@ -243,33 +312,60 @@ class BlockQuantizer:
             raise NotImplementedError("Method not supported yet.")
         weight_max = weight_max.unsqueeze(-1)
         weight_divabs = weight_block / weight_max  # (L, B)
+        del weight_block
+        weight_max = weight_max.to("cpu")
+
         weight_divabs = weight_divabs.unsqueeze(-1)  # (L, B, 1)
         L_reshaped = self.norm_lookup_table.reshape(1, -1)  # (1, 2**K)
+        # print(f"Tensor shapes: (L = {L_reshaped.shape}, weight = {weight_divabs.shape})")
+        # print("performing safe broadcasting ... ")
+        qweight = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128).to(self.device)
+        # print(qweight.shape)
+        # print("Done\n")
+        del weight_divabs
+        del L_reshaped
 
-        abs_diff = torch.abs(weight_divabs - L_reshaped)  # (L, B, 2**K)
-        qweight = torch.argmin(abs_diff, dim=-1)  # (L, B)
+        # Convert bits
+        if self.num_bits < 8:
+            # Pack multiple k-bit into uint8
+            bits_per_byte = 8 // self.num_bits
+            qweight = qweight.reshape(-1, bits_per_byte)
+            qweight_pack = torch.zeros((M * N // bits_per_byte, 1), dtype=torch.uint8, device=device)
+            
+            for i in range(bits_per_byte):
+                qweight[:, i] = qweight[:, i] << i * self.num_bits
+                qweight_pack[:, 0] |= qweight[:, i]
+        elif self.num_bits == 8:
+            # For 8-bit, direct conversion
+            qweight_pack = qweight.byte().reshape(-1, 1)
+        else:
+            # For larger than 8 bits, use appropriate dtype
+            if self.num_bits == 16:
+                qweight_pack = qweight.short()
+            elif self.num_bits == 32:
+                qweight_pack = qweight.int()
+            else:
+                qweight_pack = qweight
 
-        # Pack multiple k-bit into uint8
-        qweight = qweight.reshape(-1, 8 // self.num_bits)
-        qweight_pack = torch.zeros((M * N // 8 * self.num_bits, 1), dtype=torch.uint8, device=device)
+        # end_time = time.time()
+        # print(f"Time used = {(end_time - start_time) / 60} minutes")
+        return qweight_pack, weight_max.to(self.device), (M, N)  # weight.shape
 
-        # data format example:
-        # [1, 0, 3, 2] or [01, 00, 11, 10]  -> [10110001], LIFO
-        for i in range(8 // self.num_bits):
-            qweight[:, i] = qweight[:, i] << i * self.num_bits
-            qweight_pack[:, 0] |= qweight[:, i]
 
-        return qweight_pack, weight_max, weight.shape
 
     def dequantize_block(self, qweight, weight_max, weight_shape):
         # unpack weight
         device = qweight.device
-        weight = torch.zeros((qweight.shape[0], 8 // self.num_bits), dtype=torch.float32, device=device)
-        for i in range(8 // self.num_bits):
-            lookup_table_idx = qweight.to(torch.long) % 2**self.num_bits  # get the most right 2 bits
-            lookup_table_idx = lookup_table_idx.to(torch.long)
-            weight[:, i] = self.norm_lookup_table[lookup_table_idx].squeeze()
-            qweight = qweight >> self.num_bits  # right shift 2 bits of the original data
+        if self.num_bits < 8:
+            bits_per_byte = 8 // self.num_bits
+            weight = torch.zeros((qweight.shape[0], bits_per_byte), dtype=torch.float32, device=device)
+            for i in range(bits_per_byte):
+                lookup_table_idx = qweight.to(torch.long) % 2**self.num_bits
+                weight[:, i] = self.norm_lookup_table[lookup_table_idx].squeeze()
+                qweight = qweight >> self.num_bits
+        else:
+            lookup_table_idx = qweight.squeeze().long()
+            weight = self.norm_lookup_table[lookup_table_idx].reshape(-1, 1)
 
         weight_block = weight.reshape(-1, self.block_size)
         weight = weight_block * weight_max

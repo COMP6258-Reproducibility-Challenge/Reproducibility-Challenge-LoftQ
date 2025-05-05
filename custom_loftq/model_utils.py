@@ -266,7 +266,7 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
                                 module.bias.copy_(param)
                         elif param_name == "lora_A":
                             # For lora_A weights
-                            module.lora_A.weight.copy_(param.t())
+                            module.lora_A.weight.copy_(param)
                         elif param_name == "lora_B":
                             # For lora_B weights
                             module.lora_B.weight.copy_(param)
