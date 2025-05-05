@@ -39,11 +39,10 @@ conda install nvidia::nvcc
 
 Until we find a fix - delete deepspeed from requirements.txt
 
+You'll need to do normal git stuff to install the repo
 pip install -r requirements.txt
 accelerate config (this takes a while) - choose default options (except numa??)
 
 see example bat file unless you can figure out how to run .sh on these machines
-
-You'll need to do normal git stuff to install the repo
 
 PS It is possible to do all of this on the filestore, but it takes forever to do anything - even running a python script takes 2mins just to import libraries so its way faster to install everything to C drive (especially if you'll be in labs all day)
