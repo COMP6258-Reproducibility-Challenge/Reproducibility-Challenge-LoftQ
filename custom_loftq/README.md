@@ -31,7 +31,7 @@ If does exist, install conda from https://www.anaconda.com/download/success
 
 Once open may need to conda init
 
-conda create -n loftq
+conda create - C:\Users\USERNAME\.conda\envs\loftq_env
 conda activate loftq
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 conda install nvidia::cuda-toolkit
