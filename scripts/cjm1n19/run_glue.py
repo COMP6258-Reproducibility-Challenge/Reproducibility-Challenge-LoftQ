@@ -74,6 +74,8 @@ task_to_metrics = {
 }
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(device)
+
 DEBUG = False
 
 def set_seed(seed: int):
