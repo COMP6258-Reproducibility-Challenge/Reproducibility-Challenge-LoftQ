@@ -11,8 +11,9 @@ if __name__ == "__main__":
     parser = HfArgumentParser((BaseArguments, ModelArguments, DataArguments, TrainingArguments))
     base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         
-    raw_data = load_raw_dataset(data_args.data_name, data_args.task_name)
-    num_labels, labels = classification_utils.count_labels(raw_data)
+    #raw_data = load_raw_dataset(data_args.data_name, data_args.task_name)
+    #num_labels, labels = classification_utils.count_labels(raw_data)
+    num_labels = None
     
     model_name = model_args.model_name_or_path
     
@@ -52,7 +53,7 @@ if __name__ == "__main__":
                 raw_data['validation_matched'] = classification_utils.create_reduced_dataset(raw_data["validation_matched"], labels, num_examples=3)
                 raw_data['validation_mismatched'] = classification_utils.create_reduced_dataset(raw_data["validation_mismatched"], labels, num_examples=3)
             else:
-                raw_data['validation'] = classification_utils.create_reduced_dataset(raw_data["validation"], labels, num_examples=3)
+                raw_data['validation'] = classification_utils.create_reduced_dataset(raw_data["validation_"], labels, num_examples=3)
                 
             classification_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
         else:

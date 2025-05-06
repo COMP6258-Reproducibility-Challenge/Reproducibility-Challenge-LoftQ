@@ -168,3 +168,12 @@ glue/__pycache__
 
 #Our Files
 loading.sh
+**/quantized_models/
+**/quantized_models
+**/trained_models/
+**/trained_models
+**/trainer_outputs/
+**/trainer_outputs
+**/results/
+**/results
+

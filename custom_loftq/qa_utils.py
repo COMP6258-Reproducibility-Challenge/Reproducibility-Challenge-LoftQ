@@ -1,12 +1,12 @@
 from functools import partial
 import logging
-import os
 
 import numpy as np
 
 import evaluate
 
-from utils import LoFTQTrainer, get_trained_save_dir
+from model_utils import get_model_dir
+from utils import LoFTQTrainer
 
 task_to_keys = {
     "cola": ("sentence", None),
@@ -23,7 +23,7 @@ task_to_keys = {
 
 def count_labels(dataset):
     train_set = dataset["train"]
-    labels = set([entry['label'] for entry in train_set])
+    labels = set([entry['answer'] for entry in train_set])
     num_labels = len(labels)
     return num_labels, labels
 
@@ -59,11 +59,9 @@ def create_reduced_dataset(dataset, labels, num_examples=1000, seed=42):
 
 
 def preprocess_function(examples, tokenizer, sentence1_key, sentence2_key):
-    texts = (
-        (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
-    )
     return tokenizer(
-        *texts,
+        examples[sentence1_key],
+        examples[sentence2_key],
         padding="max_length",
         truncation=True,
         max_length=256
@@ -115,7 +113,7 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
 
     # Step 11: Save the fine-tuned model
     print("Saving final fine-tuned model...")
-    model_dir = get_trained_save_dir(model_args, data_args.data_name, data_args.task_name)
+    model_dir = get_model_dir("trained_models", model_args)
     trainer.save_model(model_dir)
 
     print("Process completed!")

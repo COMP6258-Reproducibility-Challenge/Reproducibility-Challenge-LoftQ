@@ -27,7 +27,7 @@ from transformers import (
 )
 
 from peft import LoftQConfig, LoraConfig, TaskType, get_peft_model
-from safetensors import save_open
+from safetensors import safe_open
 
 
 class Shell(nn.Module):
@@ -125,6 +125,7 @@ def quantize_and_save():
     args = arg_parse()
 
     # Download weights and configure LoRA
+    print(f"Loading model {args.model_name_or_path}...", end="")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, token=args.token, trust_remote_code=True)
     if any(name in args.model_name_or_path.lower() for name in ["llama", "mistral", "falcon"]):
         model = AutoModelForCausalLM.from_pretrained(
@@ -148,8 +149,10 @@ def quantize_and_save():
         target_modules = ["query_proj", "key_proj", "value_proj", "dense"]  # embeddings not supported by peft
     else:
         raise NotImplementedError("Other models not supported yet.")
+    print("Done\n")
 
     # Config of LoftQ
+    print("Initializing LoRA...", end="")
     loftq_config = LoftQConfig(loftq_bits=args.bits, loftq_iter=args.iter)
 
     lora_config = LoraConfig(
@@ -166,21 +169,24 @@ def quantize_and_save():
     # Obtain LoftQ model
     lora_model = get_peft_model(model, lora_config)
     base_model = lora_model.get_base_model()
+    print("Done\n")
 
     # Save LoftQ model
+    print("Saving LoftQ model...", end="")
     model_name = args.model_name_or_path.split("/")[-1] + f"-{args.bits}bit" + f"-{args.rank}rank"
     base_model_dir = os.path.join(args.save_dir, model_name)
     lora_model_dir = os.path.join(args.save_dir, model_name, "loftq_init")
 
     lora_model.save_pretrained(lora_model_dir)
-    print_model(lora_model, "lora_model")
+    # print_model(lora_model, "lora_model")
 
     # remove lora adapters and save the backbone
     unwrap_model(base_model)
     base_model.save_pretrained(base_model_dir)
     tokenizer.save_pretrained(base_model_dir)
 
-    print_model(base_model, "base_model")
+    # print_model(base_model, "base_model")
+    print("Done\n")
 
     # convert safetensor to bin
     tensors = {}

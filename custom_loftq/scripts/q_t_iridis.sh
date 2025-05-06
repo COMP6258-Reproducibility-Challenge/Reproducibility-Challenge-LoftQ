@@ -27,4 +27,5 @@ accelerate launch \
     --int_bit 4 \
     --gradient_accumulation_steps 4 \
     --from_saved \
+    --resume_from_checkpoint ./trainer_output/checkpoint-5000 \
     --save_steps 5000
