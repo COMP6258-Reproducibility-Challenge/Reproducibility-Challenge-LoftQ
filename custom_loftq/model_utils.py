@@ -19,7 +19,7 @@ def count_total_parameters(model: Union[PreTrainedModel, torch.nn.Module]):
     return sum(p.numel() for p in model.parameters())
 
 def get_model_dir(save_dir: str, model_args: ModelArguments) -> str:
-    model_name = model_args.model_name_or_path.split("/")[-1] + f"-{model_args.int_bit}bit" + f"-{model_args.reduced_rank}rank"
+    model_name = model_args.model_name_or_path.split("/")[-1] + f"-{model_args.int_bit}bit" + f"-{model_args.reduced_rank}rank" + f"-{model_args.quant_method}_quant"
     return os.path.join(save_dir, model_name)
 
 def get_base_class(model_name: str) -> Type[PreTrainedModel]:
