@@ -46,14 +46,14 @@ def load_nltk():
             )
         with FileLock(".lock") as lock:
             nltk.download("punkt", quiet=True)
-
+            
 def resize_token_embeddings(model, tokenizer):
     embedding_size = model.get_input_embeddings().weight.shape[0]
     if len(tokenizer) > embedding_size:
         model.resize_token_embeddings(len(tokenizer))
     return model
 
-def set_start_token(model, tokenizer,):
+def set_start_token(model, tokenizer, data_args):
     if model.config.decoder_start_token_id is None and isinstance(tokenizer, (MBartTokenizer, MBartTokenizerFast)):
         if isinstance(tokenizer, MBartTokenizer):
             model.config.decoder_start_token_id = tokenizer.lang_code_to_id[data_args.lang]
@@ -86,6 +86,12 @@ def max_positional_embeddings(model, model_args, data_args):
                 " model's position encodings by passing `--resize_position_embeddings`."
             )
     
+    return model
+
+def prepare_model(model, tokenizer, data_args):
+    model = resize_token_embeddings(model, tokenizer)
+    model = set_start_token(model, tokenizer, data_args)
+    model = max_positional_embeddings(model, tokenizer, data_args)
     return model
 
 def compute_metrics(eval_preds, tokenizer, metric):
@@ -169,6 +175,8 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
     
     load_nltk()
     
+    model = prepare_model(model, tokenizer, data_args)
+    
     prefix = data_args.source_prefix if data_args.source_prefix is not None else ""
     
     column_names = raw_datasets["train"].column_names
@@ -185,7 +193,7 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
                                         summary_column=summary_column, data_args=data_args, max_target_length=max_target_length, padding=padding)
     
     metric = evaluate.load("rouge")
-    compute_metrics = partial(compute_metrics, tokenizer, data_args)
+    compute_metrics = partial(compute_metrics, metric, tokenizer, data_args)
 
     train_dataset = raw_datasets["train"]
     eval_dataset = raw_datasets["validation"]
