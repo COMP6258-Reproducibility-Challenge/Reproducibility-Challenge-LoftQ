@@ -9,7 +9,7 @@ from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict,
 from model_utils import save_quantized_model, get_model_dir
 
 def load_raw_dataset(dataset_name: str, task_name: str) -> Tuple[Union[DatasetDict, Dataset, IterableDatasetDict, IterableDataset], Set, int]:
-    logging.warning("Loading raw dataset")
+    logging.warning(f"Loading raw dataset: {dataset_name} - {task_name}")
     raw_data = load_dataset(dataset_name, task_name)
     return raw_data
 

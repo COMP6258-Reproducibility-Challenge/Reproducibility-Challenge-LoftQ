@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from typing import List, Optional, Tuple, Type, Union
@@ -9,6 +10,9 @@ import torch
 from loftq import convert_linear_layer, LoraLinearLayer, TrueQuantizedLinear, BaseLoftqLinear
 
 from arguments import ModelArguments
+
+def pretty_print_model_args(model_args: ModelArguments):
+    return f"Model name: {model_args.model_name_or_path}, Method: {model_args.quant_method}, Rank: {model_args.reduced_rank}, Bits: {model_args.int_bit}, True quantize: {model_args.true_quantization}"
 
 def count_trainable_parameters(model: Union[PreTrainedModel, torch.nn.Module]):
     """Count trainable parameters in a model"""
@@ -98,6 +102,7 @@ def load_base_model(model_name:str, token: str, num_labels: Optional[int]) -> Tu
     
 def quantize_model(model: Union[PreTrainedModel, torch.nn.Module], model_args: ModelArguments, target_modules: List[str], excluded_modules: List[str]) -> Union[PreTrainedModel, torch.nn.Module]:
     logging.warning("Quantizing model, this may take a while")
+    logging.warning(pretty_print_model_args(model_args))
     
     model = convert_linear_layer(
         model,
@@ -174,6 +179,18 @@ def save_quantized_model(
         
     torch.save(loftq_state_dict, os.path.join(model_dir, f"loftq_weights.pt"))
     torch.save(module_mapping, os.path.join(model_dir, f"loftq_mapping.pt"))
+    
+    if model_args is not None:    
+        loftq_config = {
+            "quant_method": model_args.quant_method,
+            "int_bit": model_args.int_bit,
+            "reduced_rank": model_args.reduced_rank,
+            "true_quantization": model_args.true_quantization
+        }
+    
+        with open(os.path.join(model_dir, f"loftq_config.json"), "w", encoding="utf-8") as writer:
+                writer.write(json.dumps(loftq_config, indent=2, sort_keys=True) + "\n")
+                writer.close()
 
     tokenizer.save_pretrained(model_dir)
     
@@ -181,6 +198,8 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
     """
     Load a model with LoraLinearLayer modules.
     """
+    logging.warning("Loading quantized model")
+    logging.warning(pretty_print_model_args(model_args))
     model_dir = get_model_dir(save_dir, model_args)
     # Load the model architecture and basic parameters
     if issubclass(model_class, PreTrainedModel):
@@ -191,7 +210,17 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
         # Not actually tested
         model = model_class(**(model_args if model_args else {}))
         model.load_state_dict(torch.load(os.path.join(save_dir, f"loftq_model.pt")), strict=False)
-        
+    
+    try:
+        with open(os.path.join(model_dir, "loftq_config.json"), "r") as fp:
+            loftq_config = json.load(fp)
+            fp.close()
+            for key, value in loftq_config.items():
+                if value != getattr(model_args, key):
+                    raise Exception(f"The loaded quantized model {key} does not match your supplied options:  {value} (saved config) does not match {model_args[key]}")
+    except FileNotFoundError:
+        logging.warning("No saved loftq config found, using ModelArgs")
+    
     module_mapping = torch.load(os.path.join(model_dir, f"loftq_mapping.pt"))
     
     # First replace all mapped linear layers with LoFTQLayer
