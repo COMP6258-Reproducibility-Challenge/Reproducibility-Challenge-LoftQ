@@ -20,6 +20,8 @@ The valid arguments can be found in arguments.py - note that not all arguments (
 
 We mostly want to use --model_name_or_path; loftq things like --reduced_rank, --int_bit, etc; --from_saved: this will look in the --save_dir (or default) for an already quantized model, --train_small (train on a very small dataset to test it works), --no_train (only quantize the model). 
 
+--save_steps xxx - change how many training steps between checkpoints
+
 The training args are an extension of the default HF Transformers Training Args so include the ability to resume from a checkpoint - very helpful if the sbatch runs out of time - I think checkpoints are stored in the trainer_output, just give the checkpoint_X dir in the --resume_from_checkpoint argument.
 
 # Current state
@@ -31,7 +33,7 @@ If does exist, install conda from https://www.anaconda.com/download/success
 
 Once open may need to conda init
 
-conda create -n loftq
+conda create - C:\Users\USERNAME\.conda\envs\loftq_env
 conda activate loftq
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 conda install nvidia::cuda-toolkit
