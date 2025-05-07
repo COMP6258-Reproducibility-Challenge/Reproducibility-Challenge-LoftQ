@@ -94,7 +94,7 @@ def prepare_model(model, tokenizer, data_args):
     model = max_positional_embeddings(model, tokenizer, data_args)
     return model
 
-def compute_metrics(eval_preds, tokenizer, metric):
+def compute__summarisation_metrics(eval_preds, tokenizer, metric):
         preds, labels = eval_preds
         if isinstance(preds, tuple):
             preds = preds[0]
@@ -181,7 +181,7 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
     
     column_names = raw_datasets["train"].column_names
 
-    dataset_columns = summarization_name_mapping.get(data_args.dataset_name, None)
+    dataset_columns = summarization_name_mapping.get(data_args.data_name, None)
     
     text_column = dataset_columns[0] if dataset_columns is not None else column_names[0]
     summary_column = dataset_columns[1] if dataset_columns is not None else column_names[1]
@@ -193,14 +193,14 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
                                         summary_column=summary_column, data_args=data_args, max_target_length=max_target_length, padding=padding)
     
     metric = evaluate.load("rouge")
-    compute_metrics = partial(compute_metrics, metric, tokenizer, data_args)
+    compute_metrics = partial(compute__summarisation_metrics, metric, tokenizer, data_args)
 
     train_dataset = raw_datasets["train"]
     eval_dataset = raw_datasets["validation"]
     if training_args.train_small:
         max_train_samples = min(len(train_dataset), 100)
         train_dataset = train_dataset.select(range(max_train_samples))
-        max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
+        max_eval_samples = min(len(eval_dataset), 10)
         eval_dataset = eval_dataset.select(range(max_eval_samples))
     with training_args.main_process_first(desc="train dataset map pre-processing"):
         train_dataset = train_dataset.map(
@@ -224,24 +224,15 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
         label_pad_token_id=label_pad_token_id,
         pad_to_multiple_of=8 if training_args.fp16 else None,
     )
-    
-    training_args.generation_max_length = (
-        training_args.generation_max_length
-        if training_args.generation_max_length is not None
-        else data_args.val_max_target_length
-    )
-    training_args.generation_num_beams = (
-        data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
-    )
 
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+        compute_metrics=compute_metrics
     )
 
     print("Training model...")

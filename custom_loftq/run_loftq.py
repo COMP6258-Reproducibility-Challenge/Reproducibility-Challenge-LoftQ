@@ -10,6 +10,8 @@ import qa_utils
 import summarisation_utils
 from peft import TaskType
 
+from transformers import PreTrainedModel
+
 if __name__ == "__main__":
     parser = HfArgumentParser((BaseArguments, ModelArguments, DataArguments, TrainingArguments))
     base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()

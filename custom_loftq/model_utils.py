@@ -4,7 +4,15 @@ import os
 from typing import List, Optional, Tuple, Type, Union
 
 import warnings
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, AutoModelForSequenceClassification, AutoConfig, PreTrainedModel, logging as transformers_logging
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoModelForSeq2SeqLM,
+    AutoModelForSequenceClassification,
+    AutoConfig,
+    PreTrainedModel,
+    logging as transformers_logging
+)
 from peft import TaskType
 import torch
 
@@ -34,10 +42,20 @@ def get_base_class(model_name: str) -> Tuple[Type[PreTrainedModel], TaskType]:
     model_type = config.model_type
     
     if any(name in model_name.lower() for name in ["llama", "mistral", "falcon"]):
-        return AutoModelForCausalLM, TaskType.CAUSAL_LM
+        if model_type == "llama":
+            from transformers import LlamaForCausalLM as ModelClass
+        elif model_type == "mistral":
+            from transformers import MistralForCausalLM as ModelClass
+        else:
+            from transformers import FalconForCausalLM as ModelClass
+        return ModelClass, TaskType.CAUSAL_LM
 
     elif any(name in model_name.lower() for name in ["bart", "t5"]):
-        return AutoModelForSeq2SeqLM, TaskType.SEQ_2_SEQ_LM
+        if model_type == "bart":
+            from transformers import BartForConditionalGeneration as ModelClass
+        else:
+            from transformers import T5ForConditionalGeneration as ModelClass
+        return ModelClass, TaskType.SEQ_2_SEQ_LM
 
     elif any(name in model_name.lower() for name in ["deberta", "roberta", "bert"]):
         if model_type == "bert":
@@ -213,10 +231,15 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
     # Load the model architecture and basic parameters
     if issubclass(model_class, PreTrainedModel):
         # For HuggingFace models
-        model = model_class.from_pretrained(
-            model_dir,
-            num_labels=num_labels    
-        )
+        if num_labels is not None:    
+            model = model_class.from_pretrained(
+                model_dir,
+                num_labels=num_labels    
+            )
+        else:
+            model = model_class.from_pretrained(
+                model_dir
+            )
     else:
         # For regular PyTorch models
         # Not actually tested
