@@ -5,6 +5,7 @@ import logging
 
 from transformers import Trainer
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, load_dataset
+from peft import TaskType
 
 from model_utils import save_quantized_model, get_model_dir
 
@@ -29,7 +30,6 @@ class LoFTQTrainer(Trainer):
         
         # Use custom save function
         save_quantized_model(self.model, output_dir)
-
 
 def index_dim(tensor, dim, start, block_size):
     """

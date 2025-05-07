@@ -3,7 +3,8 @@ import logging
 import os
 from typing import List, Optional, Tuple, Type, Union
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, AutoModelForSequenceClassification, AutoConfig, PreTrainedModel
+import warnings
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, AutoModelForSequenceClassification, AutoConfig, PreTrainedModel, logging as transformers_logging
 from peft import TaskType
 import torch
 
@@ -26,15 +27,15 @@ def get_model_dir(save_dir: str, model_args: ModelArguments) -> str:
     model_name = model_args.model_name_or_path.split("/")[-1] + f"-{model_args.int_bit}bit" + f"-{model_args.reduced_rank}rank" + f"-{model_args.quant_method}_quant"
     return os.path.join(save_dir, model_name)
 
-def get_base_class(model_name: str) -> Type[PreTrainedModel]:
+def get_base_class(model_name: str) -> Tuple[Type[PreTrainedModel], TaskType]:
     config = AutoConfig.from_pretrained(model_name)
     model_type = config.model_type
     
     if any(name in model_name.lower() for name in ["llama", "mistral", "falcon"]):
-        return AutoModelForCausalLM
+        return AutoModelForCausalLM, TaskType.CAUSAL_LM
 
     elif any(name in model_name.lower() for name in ["bart", "t5"]):
-        return AutoModelForSeq2SeqLM
+        return AutoModelForSeq2SeqLM, TaskType.SEQ_2_SEQ_LM
 
     elif any(name in model_name.lower() for name in ["deberta", "roberta", "bert"]):
         if model_type == "bert":
@@ -43,7 +44,7 @@ def get_base_class(model_name: str) -> Type[PreTrainedModel]:
             from transformers import RobertaForSequenceClassification as ModelClass
         else:
             from transformers import DebertaV2ForSequenceClassification as ModelClass
-        return ModelClass
+        return ModelClass, TaskType.SEQ_CLS
     else:
         raise NotImplementedError("Other models not supported yet.")
 
@@ -63,7 +64,7 @@ def get_target_excluded_modules(model_name: str) -> Tuple[List[str], List[str]]:
     
     return target_modules, excluded_modules
 
-def load_base_model(model_name:str, token: str, num_labels: Optional[int]) -> Tuple[Union[PreTrainedModel, torch.nn.Module], AutoTokenizer, List[str], List[str]]:
+def load_base_model(model_name:str, token: str, num_labels: Optional[int]) -> Tuple[Union[PreTrainedModel, torch.nn.Module], TaskType, AutoTokenizer, List[str], List[str]]:
     logging.warning("Loading base model")
     tokenizer = AutoTokenizer.from_pretrained(
         model_name,
@@ -98,7 +99,7 @@ def load_base_model(model_name:str, token: str, num_labels: Optional[int]) -> Tu
     
     target_modules, excluded_modules = get_target_excluded_modules(model_name)
     
-    return model, tokenizer, target_modules, excluded_modules
+    return model, task_type, tokenizer, target_modules, excluded_modules
     
 def quantize_model(model: Union[PreTrainedModel, torch.nn.Module], model_args: ModelArguments, target_modules: List[str], excluded_modules: List[str]) -> Union[PreTrainedModel, torch.nn.Module]:
     logging.warning("Quantizing model, this may take a while")
@@ -113,6 +114,8 @@ def quantize_model(model: Union[PreTrainedModel, torch.nn.Module], model_args: M
         excluded_modules=excluded_modules,
         true_quantization=model_args.true_quantization
     )
+    
+    model = prepare_gradients(model, excluded_modules)
     return model
 
 def save_quantized_model(
@@ -194,17 +197,24 @@ def save_quantized_model(
 
     tokenizer.save_pretrained(model_dir)
     
-def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArguments, save_dir: str) -> Tuple[Union[PreTrainedModel, torch.nn.Module], AutoTokenizer, List[str], List[str]]:
+def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArguments, save_dir: str, num_labels: Optional[int]) -> Tuple[Union[PreTrainedModel, torch.nn.Module], AutoTokenizer, List[str], List[str]]:
     """
     Load a model with LoraLinearLayer modules.
     """
     logging.warning("Loading quantized model")
     logging.warning(pretty_print_model_args(model_args))
+    
+    warnings.filterwarnings("ignore", message=".*Some weights of the model checkpoint.*were not initialized.*")
+    transformers_logging.set_verbosity_error()
+    
     model_dir = get_model_dir(save_dir, model_args)
     # Load the model architecture and basic parameters
     if issubclass(model_class, PreTrainedModel):
         # For HuggingFace models
-        model = model_class.from_pretrained(model_dir)
+        model = model_class.from_pretrained(
+            model_dir,
+            num_labels=num_labels    
+        )
     else:
         # For regular PyTorch models
         # Not actually tested
@@ -217,7 +227,12 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
             fp.close()
             for key, value in loftq_config.items():
                 if value != getattr(model_args, key):
-                    raise Exception(f"The loaded quantized model {key} does not match your supplied options:  {value} (saved config) does not match {model_args[key]}")
+                    message = f"The loaded quantized model {key} does not match your supplied options:  {value} (saved config) does not match {getattr(model_args, key)}"
+                    if model_args.skip_arg_checks:
+                        logging.warning(message)
+                        logging.warning("Are you sure you wish to continue?")
+                    else:
+                        raise Exception(message + "- set --skip_arg_checks to ignore")
     except FileNotFoundError:
         logging.warning("No saved loftq config found, using ModelArgs")
     
@@ -309,4 +324,30 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
 
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     
+    model = prepare_gradients(model, excluded_modules)
+    
+    transformers_logging.set_verbosity_warning() 
+    
     return model, tokenizer, target_modules, excluded_modules
+
+def check_model_fits_task(task_type: TaskType, dataset_name: str):
+    if task_type == TaskType.SEQ_CLS and dataset_name not in ['glue', 'anli', 'squad']:
+        raise Exception("You are attempting to use a classification model on a non classification task")
+    elif task_type == TaskType.SEQ_2_SEQ_LM and dataset_name not in ["amazon_reviews_multi", "big_patent", "cnn_dailymail", "orange_sum", "pn_summary", "psc", "samsum", "thaisum", "xglue", "xsum", "wiki_summary", "multi_news"]:
+        raise Exception("You are attempting to use a summarisation model on a non summarisation task")
+    elif task_type == TaskType.CAUSAL_LM and dataset_name not in ["wikitext-2", "gsm8k"]:
+        raise Exception("You are attempting to use a causal model on a non causal task")
+
+def prepare_gradients(model, excluded_modules):
+    for name, param in model.named_parameters():
+        if "lora" in name.lower():
+            # Keep all LoRA adapters trainable
+            param.requires_grad = True
+        elif any(excluded in name.lower() for excluded in excluded_modules):
+            # Keep excluded layers trainable (full precision)
+            param.requires_grad = True
+        else:
+            # Freeze everything else (quantized backbone)
+            param.requires_grad = False
+    
+    return model

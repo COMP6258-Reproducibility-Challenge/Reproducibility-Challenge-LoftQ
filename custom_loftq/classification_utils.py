@@ -23,9 +23,11 @@ task_to_keys = {
 
 def count_labels(dataset):
     train_set = dataset["train"]
-    labels = set([entry['label'] for entry in train_set])
-    num_labels = len(labels)
-    return num_labels, labels
+    if 'label' in train_set[0]:
+        labels = set([entry['label'] for entry in train_set])
+        num_labels = len(labels)
+        return num_labels, labels
+    return None, None
 
 
 def compute_classification_metrics(eval_pred, data_args):

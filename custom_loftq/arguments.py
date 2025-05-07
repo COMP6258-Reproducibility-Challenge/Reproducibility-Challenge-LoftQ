@@ -9,7 +9,7 @@ class BaseArguments:
         default="quantized_models",
         metadata={"help": "Path to save the quantized model."},
     )
-    from_saved: Optional[bool] = field(
+    from_saved: bool = field(
         default=False,
         metadata={"help": "Load already quantized model"}
     )
@@ -49,11 +49,11 @@ class ModelArguments:
         default=4,
         metadata={"help": "Integer bit"},
     )
-    decompose: Optional[bool] = field(
+    decompose: bool = field(
         default=False,
         metadata={"help": "whether decompose"},
     )
-    quant_embedding: Optional[bool] = field(
+    quant_embedding: bool = field(
         default=False,
         metadata={"help": "Quantize embeddings"},
     )
@@ -61,17 +61,21 @@ class ModelArguments:
         default="uniform",
         metadata={"help": "Quantize method: uniform or nf"},
     )
-    loftq: Optional[bool] = field(
+    loftq: bool = field(
         default=False,
         metadata={"help": "Quantize method: uniform or nf"},
     )
-    qlora: Optional[bool] = field(
+    qlora: bool = field(
         default=False,
         metadata={"help": "Quantize method: uniform or nf"},
-    ),
-    true_quantization: Optional[bool] = field(
+    )
+    true_quantization: bool = field(
         default=False,
         metadata={"help": "Quantize the model and save only the quantized weight - slower computation but much higher memory saving, or save the dequantized weight - faster computation, but reduced memory saving"}
+    )
+    skip_arg_checks: bool = field(
+        default=False,
+        metadata={"help": "When loading a quantized model skip argument checks"}
     )
 
 @dataclass
@@ -97,11 +101,11 @@ class TrainingArguments(TrainingArguments):
         default="default",
         metadata={"help": "Experiment name"},
     )
-    train_small: Optional[bool] = field(
+    train_small: bool = field(
         default=False,
         metadata={"help": "Experiment name"},
     )
-    no_train: Optional[bool] = field(
+    no_train: bool = field(
         default=False,
         metadata={"help": "Skip training"},
     )
