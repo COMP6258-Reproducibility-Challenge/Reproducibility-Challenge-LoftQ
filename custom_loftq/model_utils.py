@@ -20,11 +20,13 @@ from transformers import (
 from peft import TaskType
 
 from loftq_adanf_fixed import (
-    convert_linear_layer,
-    LoraLinearLayer,
-    TrueQuantizedLinear,
-    BaseLoftqLinear,
+    TrueQuantizedLinear,      # The AdaNF-aware layer class
+    convert_linear_layer,     # The new wrapper function you added here
 )
+
+# Import Base class from the original loftq file (needed for type checks later)
+from loftq import BaseLoftqLinear
+
 from arguments import ModelArguments
 
 # ---------------------------------------------------------------------------

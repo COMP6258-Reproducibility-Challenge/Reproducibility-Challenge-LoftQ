@@ -62,18 +62,53 @@ def download_model():
     # --- Download and save model ---
     print("\nDownloading model (this may take a while)...")
     try:
-        # Use low_cpu_mem_usage=True to potentially avoid loading everything into RAM at once on the login node
-        # Load with bfloat16 if possible to match quantization script's likely expectation
-        model = transformers.AutoModelForCausalLM.from_pretrained(
-            args.model_id,
-            token=args.token,
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=True,
-            trust_remote_code=args.trust_remote_code
-            # Note: No device_map here, just downloading files.
-        )
-        model.save_pretrained(args.save_directory)
-        print(f"Model successfully saved to {args.save_directory}")
+        # Use the correct AutoModel class based on the model type/intended task
+        model_id_lower = args.model_id.lower()
+        model = None
+        common_kwargs = {
+            "token": args.token,
+            "torch_dtype": torch.bfloat16, # Adjust dtype if needed, bfloat16 is often good
+            "low_cpu_mem_usage": True,
+            "trust_remote_code": args.trust_remote_code
+        }
+
+        # --- Determine the correct AutoModel class ---
+        if "deberta" in model_id_lower or "roberta" in model_id_lower or "bert" in model_id_lower:
+            # Models typically used for Sequence Classification
+            print(f"Loading {args.model_id} using AutoModelForSequenceClassification...")
+            model = transformers.AutoModelForSequenceClassification.from_pretrained(
+                args.model_id, **common_kwargs
+            )
+        elif "llama" in model_id_lower or "mistral" in model_id_lower or "gpt" in model_id_lower or "falcon" in model_id_lower:
+             # Models typically used for Causal Language Modeling
+             print(f"Loading {args.model_id} using AutoModelForCausalLM...")
+             model = transformers.AutoModelForCausalLM.from_pretrained(
+                 args.model_id, **common_kwargs
+             )
+        elif "bart" in model_id_lower or "t5" in model_id_lower:
+             # Models typically used for Sequence-to-Sequence tasks
+             print(f"Loading {args.model_id} using AutoModelForSeq2SeqLM...")
+             model = transformers.AutoModelForSeq2SeqLM.from_pretrained(
+                 args.model_id, **common_kwargs
+             )
+        else:
+             # As a general fallback for just downloading, AutoModel might work,
+             # but it won't load a task-specific head.
+             print(f"Warning: Unknown model type pattern for {args.model_id}.")
+             print("Attempting generic AutoModel.from_pretrained download.")
+             print("This will download config/weights but may not load the full architecture correctly for immediate use.")
+             model = transformers.AutoModel.from_pretrained(
+                 args.model_id, **common_kwargs
+             )
+
+        # --- Save the model ---
+        if model:
+            model.save_pretrained(args.save_directory)
+            print(f"Model successfully saved to {args.save_directory}")
+        else:
+            # This case should ideally not be reached if AutoModel fallback works
+            print(f"ERROR: Could not determine appropriate AutoModel class for {args.model_id}")
+
     except Exception as e:
         print(f"ERROR downloading/saving model: {e}")
 

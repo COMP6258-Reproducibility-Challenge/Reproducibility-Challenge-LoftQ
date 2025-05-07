@@ -1,4 +1,4 @@
 python download_model.py \
-    --model_id meta-llama/Llama-2-7b-hf \
-    --save_directory /scratch/be1g21/models/llama-2-7b-hf \
+    --model_id microsoft/deberta-v3-base \
+    --save_directory /scratch/be1g21/models \
     --token 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

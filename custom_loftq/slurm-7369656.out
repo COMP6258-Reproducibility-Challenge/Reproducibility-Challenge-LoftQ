@@ -1,0 +1,67 @@
+Running SLURM prolog script on pink51.cluster.local
+===============================================================================
+Job started on Mon May  5 20:50:19 BST 2025
+Job ID          : 7369656
+Job name        : AdaNF_MNLI
+WorkDir         : /mainfs/lyceum/be1g21/LoftQ_Private/custom_loftq
+Command         : /mainfs/lyceum/be1g21/LoftQ_Private/custom_loftq/AdaNF_mnli.sh
+Partition       : lyceum
+Num hosts       : 1
+Num cores       : 16
+Num of tasks    : 1
+Hosts allocated : pink51
+Job Output Follows ...
+===============================================================================
+Starting AdaNF MNLI run...
+The following values were not passed to `accelerate launch` and had defaults used instead:
+	`--num_machines` was set to a value of `1`
+	`--dynamo_backend` was set to a value of `'no'`
+To avoid this warning pass in values for each of the problematic parameters or run `accelerate config`.
+[2025-05-05 20:52:16,378] [INFO] [real_accelerator.py:239:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+Traceback (most recent call last):
+  File "/mainfs/lyceum/be1g21/LoftQ_Private/custom_loftq/run_loftq.py", line 12, in <module>
+    base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/transformers/hf_argparser.py", line 367, in parse_args_into_dataclasses
+    raise ValueError(f"Some specified arguments are not used by the HfArgumentParser: {remaining_args}")
+ValueError: Some specified arguments are not used by the HfArgumentParser: [' #', 'Example', 'output', 'dir']
+Traceback (most recent call last):
+  File "/lyceum/be1g21/.conda/envs/loftq/bin/accelerate", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/accelerate/commands/accelerate_cli.py", line 50, in main
+    args.func(args)
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/accelerate/commands/launch.py", line 1213, in launch_command
+    simple_launcher(args)
+  File "/lyceum/be1g21/.conda/envs/loftq/lib/python3.12/site-packages/accelerate/commands/launch.py", line 795, in simple_launcher
+    raise subprocess.CalledProcessError(returncode=process.returncode, cmd=cmd)
+subprocess.CalledProcessError: Command '['/lyceum/be1g21/.conda/envs/loftq/bin/python', 'run_loftq.py', '--model_name_or_path', 'microsoft/deberta-v3-base', '--data_name', 'glue', '--task_name', 'mnli', '--loftq', '--quant_method', 'adanf', '--int_bit', '2', '--adanf_pnorm', '3', '--adanf_grid_size', '10', '--reduced_rank', '32', '--num_iter', '2', '--gradient_accumulation_steps', '1', '--per_device_train_batch_size', '32', '--learning_rate', '1e-4', '--num_train_epochs', '5', '--output_dir', '/scratch/be1g21/trained_models/adanf_mnli_b2_r32_lr1e-4_e5', ' #', 'Example', 'output', 'dir']' returned non-zero exit status 1.
+/tmp/slurmd/job7369656/slurm_script: line 49: --logging_dir: command not found
+/tmp/slurmd/job7369656/slurm_script: line 50: --logging_steps: command not found
+/tmp/slurmd/job7369656/slurm_script: line 51: --evaluation_strategy: command not found
+/tmp/slurmd/job7369656/slurm_script: line 52: --save_strategy: command not found
+/tmp/slurmd/job7369656/slurm_script: line 53: --save_total_limit: command not found
+/tmp/slurmd/job7369656/slurm_script: line 54: --load_best_model_at_end: command not found
+/tmp/slurmd/job7369656/slurm_script: line 55: --metric_for_best_model: command not found
+/tmp/slurmd/job7369656/slurm_script: line 56: --true_quantization: command not found
+AdaNF MNLI run finished.
+==============================================================================
+Running epilogue script on pink51.
+
+Submit time  : 2025-05-05T20:50:16
+Start time   : 2025-05-05T20:50:19
+End time     : 2025-05-05T20:52:38
+Elapsed time : 00:02:19 (Timelimit=1-00:00:00)
+
+Job ID: 7369656
+Cluster: i5
+User/Group: be1g21/fp
+State: COMPLETED (exit code 0)
+Nodes: 1
+Cores per node: 16
+CPU Utilized: 00:00:18
+CPU Efficiency: 0.81% of 00:37:04 core-walltime
+Job Wall-clock time: 00:02:19
+Memory Utilized: 1.04 GB
+Memory Efficiency: 0.00% of 16.00 B
+

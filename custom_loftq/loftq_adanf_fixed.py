@@ -273,3 +273,79 @@ class TrueQuantizedLinear(nn.Linear):
         if self.loftq_iters > 0:
             out += self.lora_B(self.lora_A(x))
         return out
+
+def convert_linear_layer(
+    model: nn.Module,
+    quantization_bits: int = 4,
+    rank: int = 64,
+    quantization_method: str = "normal",
+    target_modules=None,
+    excluded_modules=None,
+    true_quantization: bool = True,   # kept for API compatibility (unused here)
+    num_iter: int = 2,
+    block_size: int = 64,
+):
+    """
+    Walk the model tree and replace selected `nn.Linear` layers with
+    `TrueQuantizedLinear` from this file.
+
+    Parameters
+    ----------
+    model : `nn.Module`
+        Root module to transform in‑place.
+    quantization_bits : int
+        2 or 4.
+    rank : int
+        LoRA rank used during LoftQ initialisation.
+    quantization_method : str
+        "uniform" | "normal" | "adanf".
+    target_modules : list[str] | None
+        If given, only layers whose dotted name **contains** any of these
+        strings are replaced.
+    excluded_modules : list[str] | None
+        Layers whose dotted name contains any of these strings are skipped.
+    num_iter : int
+        LoftQ alternations (quantise ↔ low‑rank SVD).
+    block_size : int
+        Group size for per‑block quantisation.
+
+    Returns
+    -------
+    model : `nn.Module`
+        The same instance, modified in‑place.
+    """
+    if target_modules is None:
+        target_modules = []
+    if excluded_modules is None:
+        excluded_modules = []
+
+    def _should_replace(full_name: str) -> bool:
+        keep = (not target_modules) or any(t in full_name for t in target_modules)
+        skip = any(e in full_name for e in excluded_modules)
+        return keep and not skip
+
+    def _recurse(parent: nn.Module, prefix: str = ""):
+        for name, module in list(parent.named_children()):
+            full_name = f"{prefix}.{name}" if prefix else name
+
+            if isinstance(module, nn.Linear) and _should_replace(full_name):
+                tq = TrueQuantizedLinear(
+                    module.in_features,
+                    module.out_features,
+                    bias=module.bias is not None,
+                    quant_method=quantization_method,
+                    num_bits=quantization_bits,
+                    block_size=block_size,
+                    rank=rank,
+                    loftq_iters=num_iter,
+                )
+                # copy existing weights
+                tq.weight.data.copy_(module.weight.data)
+                if module.bias is not None:
+                    tq.bias.data.copy_(module.bias.data)
+                setattr(parent, name, tq)
+            else:
+                _recurse(module, full_name)
+
+    _recurse(model)
+    return model
