@@ -1,0 +1,308 @@
+ C:\Users\cjm1n19\LoftQ_Private\custom_loftq>accelerate launch     ./run_loftq.py         --model_name_or_path microsoft/deberta-v3-base         --data_name glue         --task_name sst2         --decompose         --num_train_epochs 10         --learning_rate 5e-5         --loftq         --reduced_rank 16         --num_iter 5         --int_bit 2         --save_steps 2500
+WARNING:root:Loading raw dataset: glue - sst2
+train-00000-of-00001.parquet: 100%|███████████████████████████████████████████████| 3.11M/3.11M [00:00<00:00, 65.9MB/s]
+C:\Apps\Python312\Lib\site-packages\huggingface_hub\file_download.py:143: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\cjm1n19\.cache\huggingface\hub\datasets--glue. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+validation-00000-of-00001.parquet: 100%|██████████████████████████████████████████████████| 72.8k/72.8k [00:00<?, ?B/s]
+test-00000-of-00001.parquet: 100%|██████████████████████████████████████████████████████████| 148k/148k [00:00<?, ?B/s]
+Generating train split: 100%|████████████████████████████████████████| 67349/67349 [00:00<00:00, 3431179.92 examples/s]
+Generating validation split: 100%|████████████████████████████████████████| 872/872 [00:00<00:00, 246973.67 examples/s]
+Generating test split: 100%|████████████████████████████████████████████████████████| 1821/1821 [00:00<?, ? examples/s]
+WARNING:root:Loading base model
+Some weights of DebertaV2ForSequenceClassification were not initialized from the model checkpoint at microsoft/deberta-v3-base and are newly initialized: ['classifier.bias', 'classifier.weight', 'pooler.dense.bias', 'pooler.dense.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Base - Total parameters: 184,423,682
+Base - Trainable parameters: 184,423,682 (100.00%)
+WARNING:root:Quantizing model, this may take a while
+WARNING:root:Model name: microsoft/deberta-v3-base, Method: uniform, Rank: 16, Bits: 2, True quantize: False
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+WARNING:root:Saving quantized model
+LoftQ - Total parameters: 187,160,834
+LoftQ - Trainable parameters: 3,246,338 (1.73%)
+WARNING:root:Preparing to train model
+Map: 100%|██████████████████████████████████████████████████████████████| 67349/67349 [00:10<00:00, 6178.25 examples/s]
+Map: 100%|██████████████████████████████████████████████████████████████████| 872/872 [00:00<00:00, 4984.83 examples/s]
+Map: 100%|████████████████████████████████████████████████████████████████| 1821/1821 [00:00<00:00, 5211.23 examples/s]
+Training model...
+{'loss': 0.6166, 'grad_norm': 7.292633056640625, 'learning_rate': 4.970364651383775e-05, 'epoch': 0.06}
+{'loss': 0.4342, 'grad_norm': 11.772144317626953, 'learning_rate': 4.9406699132913645e-05, 'epoch': 0.12}
+{'loss': 0.406, 'grad_norm': 8.785490036010742, 'learning_rate': 4.910975175198955e-05, 'epoch': 0.18}
+{'loss': 0.3907, 'grad_norm': 13.525602340698242, 'learning_rate': 4.8812804371065455e-05, 'epoch': 0.24}
+{'loss': 0.368, 'grad_norm': 8.221031188964844, 'learning_rate': 4.851585699014135e-05, 'epoch': 0.3}
+  3%|██▏                                                                        | 2500/84190 [05:53<3:13:23,  7.04it/s]WARNING:root:Saving quantized model
+{'loss': 0.3298, 'grad_norm': 0.4077067971229553, 'learning_rate': 4.821890960921725e-05, 'epoch': 0.36}
+{'loss': 0.3314, 'grad_norm': 18.394620895385742, 'learning_rate': 4.792196222829315e-05, 'epoch': 0.42}
+{'loss': 0.3205, 'grad_norm': 58.284149169921875, 'learning_rate': 4.762501484736905e-05, 'epoch': 0.48}
+{'loss': 0.3091, 'grad_norm': 15.836517333984375, 'learning_rate': 4.7328067466444945e-05, 'epoch': 0.53}
+{'loss': 0.3118, 'grad_norm': 14.305031776428223, 'learning_rate': 4.703112008552085e-05, 'epoch': 0.59}
+  6%|████▍                                                                      | 5000/84190 [11:44<3:03:14,  7.20it/s]WARNING:root:Saving quantized model
+{'loss': 0.3091, 'grad_norm': 3.722714424133301, 'learning_rate': 4.673417270459675e-05, 'epoch': 0.65}
+{'loss': 0.3143, 'grad_norm': 12.031822204589844, 'learning_rate': 4.6437225323672646e-05, 'epoch': 0.71}
+{'loss': 0.3079, 'grad_norm': 11.812493324279785, 'learning_rate': 4.614027794274855e-05, 'epoch': 0.77}
+{'loss': 0.2985, 'grad_norm': 1.7035082578659058, 'learning_rate': 4.584333056182445e-05, 'epoch': 0.83}
+{'loss': 0.2959, 'grad_norm': 52.17639923095703, 'learning_rate': 4.554638318090035e-05, 'epoch': 0.89}
+  9%|██████▋                                                                    | 7500/84190 [17:36<2:58:32,  7.16it/s]WARNING:root:Saving quantized model
+{'loss': 0.2766, 'grad_norm': 14.334909439086914, 'learning_rate': 4.5249435799976245e-05, 'epoch': 0.95}
+{'loss': 0.2801, 'grad_norm': 6.564299583435059, 'learning_rate': 4.495248841905215e-05, 'epoch': 1.01}
+{'loss': 0.2794, 'grad_norm': 11.122881889343262, 'learning_rate': 4.465554103812805e-05, 'epoch': 1.07}
+{'loss': 0.2585, 'grad_norm': 38.2474365234375, 'learning_rate': 4.4358593657203946e-05, 'epoch': 1.13}
+{'loss': 0.2676, 'grad_norm': 8.762341499328613, 'learning_rate': 4.4061646276279844e-05, 'epoch': 1.19}
+ 12%|████████▊                                                                 | 10000/84190 [23:27<2:53:05,  7.14it/s]WARNING:root:Saving quantized model
+{'loss': 0.2721, 'grad_norm': 3.021347761154175, 'learning_rate': 4.376469889535574e-05, 'epoch': 1.25}
+{'loss': 0.2496, 'grad_norm': 40.05753707885742, 'learning_rate': 4.346775151443164e-05, 'epoch': 1.31}
+{'loss': 0.2515, 'grad_norm': 40.801082611083984, 'learning_rate': 4.3170804133507545e-05, 'epoch': 1.37}
+{'loss': 0.2383, 'grad_norm': 1.1404956579208374, 'learning_rate': 4.287385675258344e-05, 'epoch': 1.43}
+{'loss': 0.252, 'grad_norm': 0.7682451605796814, 'learning_rate': 4.257690937165935e-05, 'epoch': 1.48}
+ 15%|██████████▉                                                               | 12500/84190 [29:17<2:47:24,  7.14it/s]WARNING:root:Saving quantized model
+{'loss': 0.262, 'grad_norm': 4.007225513458252, 'learning_rate': 4.2279961990735246e-05, 'epoch': 1.54}
+{'loss': 0.2543, 'grad_norm': 1.1111539602279663, 'learning_rate': 4.1983014609811144e-05, 'epoch': 1.6}
+{'loss': 0.2675, 'grad_norm': 0.22330071032047272, 'learning_rate': 4.168606722888704e-05, 'epoch': 1.66}
+{'loss': 0.2405, 'grad_norm': 0.24307340383529663, 'learning_rate': 4.138911984796294e-05, 'epoch': 1.72}
+{'loss': 0.2465, 'grad_norm': 0.414934366941452, 'learning_rate': 4.1092172467038845e-05, 'epoch': 1.78}
+ 18%|█████████████▏                                                            | 15000/84190 [35:11<2:42:57,  7.08it/s]WARNING:root:Saving quantized model
+{'loss': 0.2579, 'grad_norm': 5.828701496124268, 'learning_rate': 4.079522508611474e-05, 'epoch': 1.84}
+{'loss': 0.248, 'grad_norm': 14.970961570739746, 'learning_rate': 4.049827770519064e-05, 'epoch': 1.9}
+{'loss': 0.2497, 'grad_norm': 16.335941314697266, 'learning_rate': 4.020133032426654e-05, 'epoch': 1.96}
+{'loss': 0.2267, 'grad_norm': 0.03338850662112236, 'learning_rate': 3.9904382943342444e-05, 'epoch': 2.02}
+{'loss': 0.2153, 'grad_norm': 0.06256130337715149, 'learning_rate': 3.960743556241834e-05, 'epoch': 2.08}
+ 21%|███████████████▍                                                          | 17500/84190 [41:04<2:33:55,  7.22it/s]WARNING:root:Saving quantized model
+{'loss': 0.2271, 'grad_norm': 1.2796708345413208, 'learning_rate': 3.931048818149424e-05, 'epoch': 2.14}
+{'loss': 0.2204, 'grad_norm': 1.4937914609909058, 'learning_rate': 3.901354080057014e-05, 'epoch': 2.2}
+{'loss': 0.2095, 'grad_norm': 0.11722919344902039, 'learning_rate': 3.8716593419646043e-05, 'epoch': 2.26}
+{'loss': 0.2117, 'grad_norm': 24.08673667907715, 'learning_rate': 3.841964603872194e-05, 'epoch': 2.32}
+{'loss': 0.2145, 'grad_norm': 1.1573067903518677, 'learning_rate': 3.812269865779784e-05, 'epoch': 2.38}
+ 24%|█████████████████▌                                                        | 20000/84190 [46:56<2:31:32,  7.06it/s]WARNING:root:Saving quantized model
+{'loss': 0.2241, 'grad_norm': 0.20807327330112457, 'learning_rate': 3.782575127687374e-05, 'epoch': 2.43}
+{'loss': 0.2155, 'grad_norm': 0.8068584203720093, 'learning_rate': 3.7528803895949636e-05, 'epoch': 2.49}
+{'loss': 0.2094, 'grad_norm': 0.40044867992401123, 'learning_rate': 3.7231856515025534e-05, 'epoch': 2.55}
+{'loss': 0.2268, 'grad_norm': 0.0777251198887825, 'learning_rate': 3.693490913410144e-05, 'epoch': 2.61}
+{'loss': 0.2233, 'grad_norm': 0.04210299253463745, 'learning_rate': 3.6637961753177343e-05, 'epoch': 2.67}
+ 27%|███████████████████▊                                                      | 22500/84190 [52:52<2:24:47,  7.10it/s]WARNING:root:Saving quantized model
+{'loss': 0.2082, 'grad_norm': 0.3534419536590576, 'learning_rate': 3.634101437225324e-05, 'epoch': 2.73}
+{'loss': 0.228, 'grad_norm': 0.20687775313854218, 'learning_rate': 3.604406699132914e-05, 'epoch': 2.79}
+{'loss': 0.2119, 'grad_norm': 11.280068397521973, 'learning_rate': 3.574711961040504e-05, 'epoch': 2.85}
+{'loss': 0.2207, 'grad_norm': 32.56718826293945, 'learning_rate': 3.5450172229480936e-05, 'epoch': 2.91}
+{'loss': 0.2022, 'grad_norm': 0.23124568164348602, 'learning_rate': 3.5153224848556834e-05, 'epoch': 2.97}
+ 30%|█████████████████████▉                                                    | 25000/84190 [58:47<2:19:20,  7.08it/s]WARNING:root:Saving quantized model
+{'loss': 0.1992, 'grad_norm': 0.42275720834732056, 'learning_rate': 3.485627746763274e-05, 'epoch': 3.03}
+{'loss': 0.1803, 'grad_norm': 14.289741516113281, 'learning_rate': 3.455933008670864e-05, 'epoch': 3.09}
+{'loss': 0.1851, 'grad_norm': 0.1900930553674698, 'learning_rate': 3.4262382705784535e-05, 'epoch': 3.15}
+{'loss': 0.1967, 'grad_norm': 1.6383953094482422, 'learning_rate': 3.396543532486043e-05, 'epoch': 3.21}
+{'loss': 0.1807, 'grad_norm': 0.24447807669639587, 'learning_rate': 3.366848794393634e-05, 'epoch': 3.27}
+ 33%|███████████████████████▌                                                | 27500/84190 [1:04:40<2:11:33,  7.18it/s]WARNING:root:Saving quantized model
+{'loss': 0.2177, 'grad_norm': 0.37859952449798584, 'learning_rate': 3.3371540563012236e-05, 'epoch': 3.33}
+{'loss': 0.1859, 'grad_norm': 0.9139452576637268, 'learning_rate': 3.3074593182088134e-05, 'epoch': 3.39}
+{'loss': 0.1945, 'grad_norm': 0.03776390105485916, 'learning_rate': 3.277764580116404e-05, 'epoch': 3.44}
+{'loss': 0.1899, 'grad_norm': 17.13738250732422, 'learning_rate': 3.248069842023994e-05, 'epoch': 3.5}
+{'loss': 0.201, 'grad_norm': 0.22316688299179077, 'learning_rate': 3.2183751039315835e-05, 'epoch': 3.56}
+ 36%|█████████████████████████▋                                              | 30000/84190 [1:10:33<2:05:32,  7.19it/s]WARNING:root:Saving quantized model
+{'loss': 0.1983, 'grad_norm': 11.766207695007324, 'learning_rate': 3.188680365839173e-05, 'epoch': 3.62}
+{'loss': 0.1799, 'grad_norm': 15.411111831665039, 'learning_rate': 3.158985627746763e-05, 'epoch': 3.68}
+{'loss': 0.2048, 'grad_norm': 0.10604103654623032, 'learning_rate': 3.129290889654353e-05, 'epoch': 3.74}
+{'loss': 0.2048, 'grad_norm': 156.51771545410156, 'learning_rate': 3.0995961515619434e-05, 'epoch': 3.8}
+{'loss': 0.1799, 'grad_norm': 32.64948654174805, 'learning_rate': 3.069901413469533e-05, 'epoch': 3.86}
+ 39%|███████████████████████████▊                                            | 32500/84190 [1:16:25<2:00:58,  7.12it/s]WARNING:root:Saving quantized model
+{'loss': 0.2036, 'grad_norm': 7.380832672119141, 'learning_rate': 3.0402066753771237e-05, 'epoch': 3.92}
+{'loss': 0.1902, 'grad_norm': 0.020311065018177032, 'learning_rate': 3.0105119372847135e-05, 'epoch': 3.98}
+{'loss': 0.1841, 'grad_norm': 11.44697380065918, 'learning_rate': 2.9808171991923033e-05, 'epoch': 4.04}
+{'loss': 0.177, 'grad_norm': 19.3551082611084, 'learning_rate': 2.9511224610998934e-05, 'epoch': 4.1}
+{'loss': 0.1775, 'grad_norm': 18.437240600585938, 'learning_rate': 2.9214277230074833e-05, 'epoch': 4.16}
+ 42%|█████████████████████████████▉                                          | 35000/84190 [1:22:16<1:53:18,  7.24it/s]WARNING:root:Saving quantized model
+{'loss': 0.1884, 'grad_norm': 0.7301633358001709, 'learning_rate': 2.891732984915073e-05, 'epoch': 4.22}
+{'loss': 0.1701, 'grad_norm': 0.26497891545295715, 'learning_rate': 2.8620382468226632e-05, 'epoch': 4.28}
+{'loss': 0.1713, 'grad_norm': 0.15260489284992218, 'learning_rate': 2.832343508730253e-05, 'epoch': 4.34}
+{'loss': 0.1602, 'grad_norm': 0.4933343827724457, 'learning_rate': 2.8026487706378428e-05, 'epoch': 4.39}
+{'loss': 0.1928, 'grad_norm': 0.1531531810760498, 'learning_rate': 2.772954032545433e-05, 'epoch': 4.45}
+ 45%|████████████████████████████████                                        | 37500/84190 [1:28:08<1:46:24,  7.31it/s]WARNING:root:Saving quantized model
+{'loss': 0.1612, 'grad_norm': 0.015535088256001472, 'learning_rate': 2.7432592944530235e-05, 'epoch': 4.51}
+{'loss': 0.1624, 'grad_norm': 0.17334721982479095, 'learning_rate': 2.7135645563606133e-05, 'epoch': 4.57}
+{'loss': 0.1732, 'grad_norm': 6.3275065422058105, 'learning_rate': 2.683869818268203e-05, 'epoch': 4.63}
+{'loss': 0.1469, 'grad_norm': 0.25486305356025696, 'learning_rate': 2.6541750801757932e-05, 'epoch': 4.69}
+{'loss': 0.1748, 'grad_norm': 3.60957670211792, 'learning_rate': 2.624480342083383e-05, 'epoch': 4.75}
+ 48%|██████████████████████████████████▏                                     | 40000/84190 [1:33:59<1:44:06,  7.07it/s]WARNING:root:Saving quantized model
+{'loss': 0.1629, 'grad_norm': 0.3105334937572479, 'learning_rate': 2.5947856039909728e-05, 'epoch': 4.81}
+{'loss': 0.1807, 'grad_norm': 72.54293060302734, 'learning_rate': 2.565090865898563e-05, 'epoch': 4.87}
+{'loss': 0.1744, 'grad_norm': 0.14182287454605103, 'learning_rate': 2.5353961278061528e-05, 'epoch': 4.93}
+{'loss': 0.1614, 'grad_norm': 10.307650566101074, 'learning_rate': 2.5057013897137426e-05, 'epoch': 4.99}
+{'loss': 0.1713, 'grad_norm': 0.0838196650147438, 'learning_rate': 2.4760066516213327e-05, 'epoch': 5.05}
+ 50%|████████████████████████████████████▎                                   | 42500/84190 [1:39:52<1:34:58,  7.32it/s]WARNING:root:Saving quantized model
+{'loss': 0.1456, 'grad_norm': 0.03013203851878643, 'learning_rate': 2.446311913528923e-05, 'epoch': 5.11}
+{'loss': 0.1565, 'grad_norm': 19.624265670776367, 'learning_rate': 2.4166171754365127e-05, 'epoch': 5.17}
+{'loss': 0.1662, 'grad_norm': 0.04679550603032112, 'learning_rate': 2.3869224373441025e-05, 'epoch': 5.23}
+{'loss': 0.1444, 'grad_norm': 0.05132846534252167, 'learning_rate': 2.357227699251693e-05, 'epoch': 5.29}
+{'loss': 0.1672, 'grad_norm': 14.5670747756958, 'learning_rate': 2.3275329611592828e-05, 'epoch': 5.35}
+ 53%|██████████████████████████████████████▍                                 | 45000/84190 [1:45:44<1:32:21,  7.07it/s]WARNING:root:Saving quantized model
+{'loss': 0.1585, 'grad_norm': 0.698066234588623, 'learning_rate': 2.2978382230668726e-05, 'epoch': 5.4}
+{'loss': 0.1736, 'grad_norm': 0.5091044306755066, 'learning_rate': 2.2681434849744627e-05, 'epoch': 5.46}
+{'loss': 0.1543, 'grad_norm': 0.18691934645175934, 'learning_rate': 2.2384487468820525e-05, 'epoch': 5.52}
+{'loss': 0.1601, 'grad_norm': 7.022497653961182, 'learning_rate': 2.2087540087896424e-05, 'epoch': 5.58}
+{'loss': 0.1451, 'grad_norm': 0.0958365872502327, 'learning_rate': 2.1790592706972325e-05, 'epoch': 5.64}
+ 56%|████████████████████████████████████████▌                               | 47500/84190 [1:51:38<1:25:27,  7.16it/s]WARNING:root:Saving quantized model
+{'loss': 0.1523, 'grad_norm': 0.015651514753699303, 'learning_rate': 2.1493645326048226e-05, 'epoch': 5.7}
+{'loss': 0.1566, 'grad_norm': 3.0283877849578857, 'learning_rate': 2.1196697945124125e-05, 'epoch': 5.76}
+{'loss': 0.1372, 'grad_norm': 0.6370147466659546, 'learning_rate': 2.0899750564200023e-05, 'epoch': 5.82}
+{'loss': 0.1459, 'grad_norm': 0.14682042598724365, 'learning_rate': 2.0602803183275924e-05, 'epoch': 5.88}
+{'loss': 0.1698, 'grad_norm': 0.3133430480957031, 'learning_rate': 2.0305855802351826e-05, 'epoch': 5.94}
+ 59%|██████████████████████████████████████████▊                             | 50000/84190 [1:57:31<1:20:42,  7.06it/s]WARNING:root:Saving quantized model
+{'loss': 0.1555, 'grad_norm': 11.935684204101562, 'learning_rate': 2.0008908421427724e-05, 'epoch': 6.0}
+{'loss': 0.1525, 'grad_norm': 0.0941808745265007, 'learning_rate': 1.9711961040503625e-05, 'epoch': 6.06}
+{'loss': 0.1427, 'grad_norm': 0.4369811713695526, 'learning_rate': 1.9415013659579523e-05, 'epoch': 6.12}
+{'loss': 0.1424, 'grad_norm': 0.26362910866737366, 'learning_rate': 1.911806627865542e-05, 'epoch': 6.18}
+{'loss': 0.1368, 'grad_norm': 0.07948845624923706, 'learning_rate': 1.8821118897731323e-05, 'epoch': 6.24}
+ 62%|████████████████████████████████████████████▉                           | 52500/84190 [2:03:25<1:15:06,  7.03it/s]WARNING:root:Saving quantized model
+{'loss': 0.15, 'grad_norm': 107.30380249023438, 'learning_rate': 1.8524171516807224e-05, 'epoch': 6.3}
+{'loss': 0.1392, 'grad_norm': 0.08434895426034927, 'learning_rate': 1.8227224135883122e-05, 'epoch': 6.35}
+{'loss': 0.1537, 'grad_norm': 15.291336059570312, 'learning_rate': 1.793027675495902e-05, 'epoch': 6.41}
+{'loss': 0.1366, 'grad_norm': 0.06079511716961861, 'learning_rate': 1.7633329374034922e-05, 'epoch': 6.47}
+{'loss': 0.1163, 'grad_norm': 5.442917346954346, 'learning_rate': 1.7336381993110823e-05, 'epoch': 6.53}
+ 65%|███████████████████████████████████████████████                         | 55000/84190 [2:09:18<1:07:21,  7.22it/s]WARNING:root:Saving quantized model
+{'loss': 0.1382, 'grad_norm': 54.56198501586914, 'learning_rate': 1.703943461218672e-05, 'epoch': 6.59}
+{'loss': 0.1349, 'grad_norm': 17.72709846496582, 'learning_rate': 1.6742487231262623e-05, 'epoch': 6.65}
+{'loss': 0.1653, 'grad_norm': 0.3667736053466797, 'learning_rate': 1.644553985033852e-05, 'epoch': 6.71}
+{'loss': 0.1438, 'grad_norm': 0.17969167232513428, 'learning_rate': 1.614859246941442e-05, 'epoch': 6.77}
+{'loss': 0.1453, 'grad_norm': 0.00947414617985487, 'learning_rate': 1.585164508849032e-05, 'epoch': 6.83}
+ 68%|█████████████████████████████████████████████████▏                      | 57500/84190 [2:15:11<1:02:32,  7.11it/s]WARNING:root:Saving quantized model
+{'loss': 0.1506, 'grad_norm': 0.153554767370224, 'learning_rate': 1.5554697707566222e-05, 'epoch': 6.89}
+{'loss': 0.157, 'grad_norm': 0.14220167696475983, 'learning_rate': 1.525775032664212e-05, 'epoch': 6.95}
+{'loss': 0.1521, 'grad_norm': 0.5273006558418274, 'learning_rate': 1.496080294571802e-05, 'epoch': 7.01}
+{'loss': 0.1225, 'grad_norm': 0.023418089374899864, 'learning_rate': 1.4663855564793918e-05, 'epoch': 7.07}
+{'loss': 0.1458, 'grad_norm': 12.427738189697266, 'learning_rate': 1.4366908183869817e-05, 'epoch': 7.13}
+ 71%|████████████████████████████████████████████████████▋                     | 60000/84190 [2:21:03<56:44,  7.11it/s]WARNING:root:Saving quantized model
+{'loss': 0.1221, 'grad_norm': 0.027599701657891273, 'learning_rate': 1.4069960802945719e-05, 'epoch': 7.19}
+{'loss': 0.1299, 'grad_norm': 0.07190308719873428, 'learning_rate': 1.3773013422021619e-05, 'epoch': 7.25}
+{'loss': 0.1282, 'grad_norm': 0.01601339317858219, 'learning_rate': 1.3476066041097518e-05, 'epoch': 7.3}
+{'loss': 0.1357, 'grad_norm': 0.11083720624446869, 'learning_rate': 1.3179118660173417e-05, 'epoch': 7.36}
+{'loss': 0.1206, 'grad_norm': 65.81334686279297, 'learning_rate': 1.2882171279249316e-05, 'epoch': 7.42}
+ 74%|██████████████████████████████████████████████████████▉                   | 62500/84190 [2:26:56<50:41,  7.13it/s]WARNING:root:Saving quantized model
+{'loss': 0.113, 'grad_norm': 0.16587436199188232, 'learning_rate': 1.2585223898325218e-05, 'epoch': 7.48}
+{'loss': 0.1344, 'grad_norm': 0.04833484813570976, 'learning_rate': 1.2288276517401118e-05, 'epoch': 7.54}
+{'loss': 0.1424, 'grad_norm': 13.394673347473145, 'learning_rate': 1.1991329136477017e-05, 'epoch': 7.6}
+{'loss': 0.1223, 'grad_norm': 79.75540924072266, 'learning_rate': 1.1694381755552915e-05, 'epoch': 7.66}
+{'loss': 0.1379, 'grad_norm': 0.19075924158096313, 'learning_rate': 1.1397434374628817e-05, 'epoch': 7.72}
+ 77%|█████████████████████████████████████████████████████████▏                | 65000/84190 [2:32:49<44:48,  7.14it/s]WARNING:root:Saving quantized model
+{'loss': 0.1315, 'grad_norm': 0.12577487528324127, 'learning_rate': 1.1100486993704717e-05, 'epoch': 7.78}
+{'loss': 0.1209, 'grad_norm': 0.04656236246228218, 'learning_rate': 1.0803539612780615e-05, 'epoch': 7.84}
+{'loss': 0.136, 'grad_norm': 0.2371303290128708, 'learning_rate': 1.0506592231856516e-05, 'epoch': 7.9}
+{'loss': 0.1353, 'grad_norm': 0.012688180431723595, 'learning_rate': 1.0209644850932414e-05, 'epoch': 7.96}
+{'loss': 0.1313, 'grad_norm': 212.53228759765625, 'learning_rate': 9.912697470008316e-06, 'epoch': 8.02}
+ 80%|███████████████████████████████████████████████████████████▎              | 67500/84190 [2:38:43<38:13,  7.28it/s]WARNING:root:Saving quantized model
+{'loss': 0.1439, 'grad_norm': 0.11615945398807526, 'learning_rate': 9.615750089084215e-06, 'epoch': 8.08}
+{'loss': 0.1302, 'grad_norm': 0.14126469194889069, 'learning_rate': 9.318802708160113e-06, 'epoch': 8.14}
+{'loss': 0.1252, 'grad_norm': 14.286666870117188, 'learning_rate': 9.021855327236015e-06, 'epoch': 8.2}
+{'loss': 0.1179, 'grad_norm': 0.6008485555648804, 'learning_rate': 8.724907946311913e-06, 'epoch': 8.26}
+{'loss': 0.12, 'grad_norm': 0.03177567571401596, 'learning_rate': 8.427960565387814e-06, 'epoch': 8.31}
+ 83%|█████████████████████████████████████████████████████████████▌            | 70000/84190 [2:44:36<33:52,  6.98it/s]WARNING:root:Saving quantized model
+{'loss': 0.1321, 'grad_norm': 0.08213424682617188, 'learning_rate': 8.131013184463714e-06, 'epoch': 8.37}
+{'loss': 0.1208, 'grad_norm': 0.07783722132444382, 'learning_rate': 7.834065803539612e-06, 'epoch': 8.43}
+{'loss': 0.1297, 'grad_norm': 0.029567768797278404, 'learning_rate': 7.537118422615514e-06, 'epoch': 8.49}
+{'loss': 0.1019, 'grad_norm': 0.006291682366281748, 'learning_rate': 7.240171041691413e-06, 'epoch': 8.55}
+{'loss': 0.1475, 'grad_norm': 20.417543411254883, 'learning_rate': 6.943223660767312e-06, 'epoch': 8.61}
+ 86%|███████████████████████████████████████████████████████████████▋          | 72500/84190 [2:50:30<27:16,  7.14it/s]WARNING:root:Saving quantized model
+{'loss': 0.1278, 'grad_norm': 0.11651831865310669, 'learning_rate': 6.646276279843212e-06, 'epoch': 8.67}
+{'loss': 0.1138, 'grad_norm': 26.157949447631836, 'learning_rate': 6.349328898919112e-06, 'epoch': 8.73}
+{'loss': 0.125, 'grad_norm': 0.1266128420829773, 'learning_rate': 6.052381517995012e-06, 'epoch': 8.79}
+{'loss': 0.1354, 'grad_norm': 0.2591000199317932, 'learning_rate': 5.7554341370709115e-06, 'epoch': 8.85}
+{'loss': 0.1215, 'grad_norm': 8.668477058410645, 'learning_rate': 5.458486756146811e-06, 'epoch': 8.91}
+ 89%|█████████████████████████████████████████████████████████████████▉        | 75000/84190 [2:56:24<21:23,  7.16it/s]WARNING:root:Saving quantized model
+{'loss': 0.127, 'grad_norm': 0.046115923672914505, 'learning_rate': 5.16153937522271e-06, 'epoch': 8.97}
+{'loss': 0.1233, 'grad_norm': 0.252760112285614, 'learning_rate': 4.86459199429861e-06, 'epoch': 9.03}
+{'loss': 0.0993, 'grad_norm': 0.4626062214374542, 'learning_rate': 4.567644613374511e-06, 'epoch': 9.09}
+{'loss': 0.1279, 'grad_norm': 24.370729446411133, 'learning_rate': 4.27069723245041e-06, 'epoch': 9.15}
+{'loss': 0.1098, 'grad_norm': 0.12901432812213898, 'learning_rate': 3.973749851526309e-06, 'epoch': 9.21}
+ 92%|████████████████████████████████████████████████████████████████████      | 77500/84190 [3:02:17<15:33,  7.16it/s]WARNING:root:Saving quantized model
+{'loss': 0.1092, 'grad_norm': 0.7148037552833557, 'learning_rate': 3.6768024706022095e-06, 'epoch': 9.26}
+{'loss': 0.1221, 'grad_norm': 9.001450538635254, 'learning_rate': 3.3798550896781092e-06, 'epoch': 9.32}
+{'loss': 0.1203, 'grad_norm': 66.40775299072266, 'learning_rate': 3.082907708754009e-06, 'epoch': 9.38}
+{'loss': 0.1269, 'grad_norm': 0.07403308153152466, 'learning_rate': 2.7859603278299088e-06, 'epoch': 9.44}
+{'loss': 0.1077, 'grad_norm': 0.4375606179237366, 'learning_rate': 2.4890129469058085e-06, 'epoch': 9.5}
+ 95%|██████████████████████████████████████████████████████████████████████▎   | 80000/84190 [3:08:11<09:50,  7.09it/s]WARNING:root:Saving quantized model
+{'loss': 0.0989, 'grad_norm': 0.004922891966998577, 'learning_rate': 2.1920655659817083e-06, 'epoch': 9.56}
+{'loss': 0.1199, 'grad_norm': 0.04500727728009224, 'learning_rate': 1.895118185057608e-06, 'epoch': 9.62}
+{'loss': 0.1433, 'grad_norm': 10.3552827835083, 'learning_rate': 1.5981708041335076e-06, 'epoch': 9.68}
+{'loss': 0.1239, 'grad_norm': 0.6135063767433167, 'learning_rate': 1.3012234232094074e-06, 'epoch': 9.74}
+{'loss': 0.1104, 'grad_norm': 0.08090391010046005, 'learning_rate': 1.004276042285307e-06, 'epoch': 9.8}
+ 98%|████████████████████████████████████████████████████████████████████████▌ | 82500/84190 [3:14:04<03:57,  7.12it/s]WARNING:root:Saving quantized model
+{'loss': 0.1008, 'grad_norm': 0.03588234633207321, 'learning_rate': 7.073286613612068e-07, 'epoch': 9.86}
+{'loss': 0.107, 'grad_norm': 0.1066925898194313, 'learning_rate': 4.1038128043710657e-07, 'epoch': 9.92}
+{'loss': 0.1416, 'grad_norm': 0.013064833357930183, 'learning_rate': 1.134338995130063e-07, 'epoch': 9.98}
+100%|█████████████████████████████████████████████████████████████████████████▉| 84189/84190 [3:18:03<00:00,  7.12it/s]WARNING:root:Saving quantized model
+{'train_runtime': 11884.8844, 'train_samples_per_second': 56.668, 'train_steps_per_second': 7.084, 'train_loss': 0.18581798644994157, 'epoch': 10.0}
+100%|██████████████████████████████████████████████████████████████████████████| 84190/84190 [3:18:04<00:00,  7.08it/s]
+Evaluating model...
+100%|████████████████████████████████████████████████████████████████████████████████| 109/109 [00:07<00:00, 15.43it/s]
+Validation Matched Results: {'eval_loss': 0.45566776394844055, 'eval_accuracy': 0.9277522935779816, 'eval_runtime': 7.1422, 'eval_samples_per_second': 122.091, 'eval_steps_per_second': 15.261, 'epoch': 10.0}
+Saving final fine-tuned model...
+WARNING:root:Saving quantized model
+Process completed!
