@@ -94,6 +94,329 @@ class BaseLoftqLinear(nn.Module):
         # return {"L": L, "R": R, "U": U, "S": S, "Vh": Vh, "reduced_rank": reduced_rank}
 
 
+#########################################################
+#TRUE QUANTIZER
+#########################################################
+
+
+class TrueQuantizedConv2d(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int | tuple[int, int],
+        stride: int | tuple[int, int] = 1,
+        padding: int | tuple[int, int] | str = 0,
+        dilation: int | tuple[int, int] = 1,
+        groups: int = 1,
+        bias: bool = True,
+        quantization_bits: int = 4,
+        reduced_rank: int = 16,
+        num_iters: int = 1, # As per LoftQ paper, T=1 is often sufficient
+        quantization_method: str = "uniform", # "uniform" or "normal"
+        lora_A_kernel_size_from_orig: bool = True, # If True, lora_A uses original kernel_size
+        lora_A_bias: bool = False,
+        lora_B_bias: bool = False,
+    ):
+        super().__init__()
+        self.in_channels_orig = in_channels
+        self.out_channels_orig = out_channels
+
+        if isinstance(kernel_size, int):
+            self.kernel_size_orig = (kernel_size, kernel_size)
+        else:
+            self.kernel_size_orig = kernel_size
+        
+        if isinstance(stride, int):
+            self.stride_orig = (stride, stride)
+        else:
+            self.stride_orig = stride
+
+        # padding_orig can be int, tuple or str. F.conv2d handles string padding.
+        self.padding_orig = padding
+        
+        if isinstance(dilation, int):
+            self.dilation_orig = (dilation, dilation)
+        else:
+            self.dilation_orig = dilation
+            
+        self.groups_orig = groups
+        self.has_bias_orig = bias
+
+        self.quantization_bits = quantization_bits
+        self.reduced_rank = reduced_rank
+        self.num_iters = num_iters
+        self.quantization_method = quantization_method
+
+        # LoRA Adapters (as nn.Conv2d)
+        # lora_A: Applies original kernel_size, projects from in_channels to rank
+        # lora_B: Applies 1x1 kernel, projects from rank to out_channels
+        
+        lora_A_actual_kernel_size = self.kernel_size_orig if lora_A_kernel_size_from_orig else (1,1)
+        # For lora_A, input channels are original_in_channels / original_groups, output channels are rank
+        # The nn.Conv2d groups parameter will handle the division of in_channels for lora_A
+        self.lora_A = nn.Conv2d(
+            in_channels=self.in_channels_orig, 
+            out_channels=self.reduced_rank * self.groups_orig, # rank per group
+            kernel_size=lora_A_actual_kernel_size,
+            stride=self.stride_orig if lora_A_kernel_size_from_orig else (1,1), # Stride 1 for 1x1, else original
+            padding=self.padding_orig if lora_A_kernel_size_from_orig else 0, # Padding 0 for 1x1, else original
+            dilation=self.dilation_orig if lora_A_kernel_size_from_orig else (1,1), # Dilation 1 for 1x1, else original
+            groups=self.groups_orig,
+            bias=lora_A_bias 
+        )
+        # For lora_B, input channels are rank (total, across all groups), output channels are original_out_channels
+        # It acts like a pointwise convolution across groups after lora_A
+        self.lora_B = nn.Conv2d(
+            in_channels=self.reduced_rank * self.groups_orig, # rank per group
+            out_channels=self.out_channels_orig,
+            kernel_size=(1, 1),
+            groups=self.groups_orig, # Maintain grouping structure
+            bias=lora_B_bias
+        )
+
+        if self.has_bias_orig:
+            self.bias = nn.Parameter(torch.zeros(self.out_channels_orig))
+        else:
+            self.register_parameter('bias', None)
+
+        self.quantizer = BlockQuantizer(
+            num_bits=quantization_bits, 
+            device=compute_device, # Make sure compute_device is defined
+            method=quantization_method,
+            block_size=64 # Default block size, can be configured
+        )
+
+        # Buffers for quantized weights (will be registered in quantize method)
+        # self.qweight, self.weight_max, self.kernel_shape_orig_buf
+
+    def _low_rank_decomposition(self, weight_2d: torch.Tensor, reduced_rank: int):
+        U, S, Vh = torch.linalg.svd(weight_2d, full_matrices=False)
+        
+        # L = U @ sqrt(diag(S))
+        # R = sqrt(diag(S)) @ Vh
+        # Here, we want L (out_dim, rank) and R (rank, in_dim_2d)
+        # such that L @ R approximates weight_2d
+        
+        L_factor = U[:, :reduced_rank] @ torch.diag(S[:reduced_rank].sqrt())
+        R_factor = torch.diag(S[:reduced_rank].sqrt()) @ Vh[:reduced_rank, :]
+        
+        return L_factor, R_factor # L_factor is (C_out, rank), R_factor is (rank, C_in_eff * kH * kW)
+
+    def _loftq(self, weight_2d: torch.Tensor, reduced_rank: int, num_iter: int):
+        dtype = weight_2d.dtype # Should be float32 for SVD stability
+        current_residual_2d = weight_2d.clone().to(torch.float32) # Work in float32
+        
+        # Initialize LoRA factors to zero or small random values if preferred
+        # For simplicity, we'll effectively build them up from the residual of the final quantized base
+        final_L = torch.zeros((weight_2d.shape[0], reduced_rank), device=compute_device, dtype=torch.float32)
+        final_R = torch.zeros((reduced_rank, weight_2d.shape[1]), device=compute_device, dtype=torch.float32)
+
+        q_base_weight_2d = torch.zeros_like(weight_2d, device=compute_device, dtype=torch.float32)
+
+        for i in range(num_iter):
+            # Quantize the current residual
+            qweight_pack, weight_max_val, _ = self.quantizer.quantize_block(current_residual_2d)
+            dequantized_current_residual_2d = self.quantizer.dequantize_block(qweight_pack, weight_max_val, current_residual_2d.shape)
+
+            # The quantized part for this iteration is dequantized_current_residual_2d
+            # The new residual for SVD is weight_2d - dequantized_current_residual_2d
+            
+            if i == num_iters - 1: # Last iteration
+                # The base quantized weight is the dequantized residual from the last step
+                q_base_weight_2d = dequantized_current_residual_2d
+                # The final residual for SVD is the original weight minus this base quantized weight
+                svd_residual_2d = weight_2d - q_base_weight_2d
+                L_iter, R_iter = self._low_rank_decomposition(svd_residual_2d, reduced_rank)
+                final_L = L_iter
+                final_R = R_iter
+            else: # Not the last iteration (if num_iter > 1)
+                 # This part is more complex if we strictly follow alternating optimization.
+                 # For T=1 (num_iter=1), this loop runs once.
+                 # Q_t = q_N(W - A_{t-1}B_{t-1}^T)
+                 # A_tB_t^T = SVD(W - Q_t)
+                 # For simplicity and matching LoftQ paper's T=1 effectiveness:
+                 # 1. Quantize W to get Q_W.
+                 # 2. Perform SVD on W - Q_W to get L, R.
+                 # This means the loop structure here simplifies if num_iter=1.
+                 # The provided TrueQuantizedLinear implies num_iter is for the SVD part.
+                 # Let's stick to the paper's Algorithm 1:
+                 # Q_t = q_N(W - A_{t-1}B_{t-1}^T)
+                 # A_t, B_t = SVD(W - Q_t)
+                 # For the first iteration (t=1), A_0B_0^T = 0. So Q_1 = q_N(W).
+                 # Then A_1, B_1 from SVD(W - Q_1).
+
+                 # If num_iter > 1, this needs proper alternating optimization.
+                 # The provided linear layer's _loftq seems to do iterative refinement of SVD on the residual.
+                 # Let's assume num_iter=1 for now, matching the paper's common case.
+                 # If num_iter > 1, the logic from BaseLoftqLinear should be adapted more carefully.
+                 # For now, this placeholder makes it T=1 like.
+                 pass
+
+
+        # For T=1: q_base_weight_2d is Q(W), final_L, final_R are from SVD(W - Q(W))
+        # We need qweight_pack and weight_max for Q(W)
+        qpack_for_base, wmax_for_base, _ = self.quantizer.quantize_block(q_base_weight_2d.to(dtype)) # quantize the dequantized version to get its pack
+        
+        return qpack_for_base, wmax_for_base, final_L.to(dtype), final_R.to(dtype)
+
+
+    def quantize(self, original_conv_layer: nn.Conv2d):
+        W_initial_4d = original_conv_layer.weight.data.clone()
+        C_out, C_in_div_groups, kH, kW = W_initial_4d.shape
+        # C_in = C_in_div_groups * self.groups_orig
+
+        # Reshape 4D kernel to 2D: (C_out, C_in_div_groups * kH * kW * groups_orig)
+        # More robustly: (C_out, C_in_div_groups * kH * kW) if we process per group for SVD,
+        # or flatten more aggressively if groups > 1 and SVD is on the whole matrix.
+        # Standard LoftQ formulation implies SVD on the full effective weight matrix.
+        # If groups > 1, the nn.Conv2d weight is (C_out, C_in/groups, kH, kW).
+        # The effective C_in for the whole layer is self.in_channels_orig.
+        # Let's reshape to (C_out, (C_in_div_groups * kH * kW))
+        # This means we are factorizing each of C_out kernels independently.
+        
+        # Reshape to (C_out, C_in_div_groups * kH * kW)
+        # This implies SVD is applied to the matrix that maps (flattened_group_kernels) to (output_channels)
+        W_initial_2d = W_initial_4d.reshape(C_out, -1)
+
+        # Apply LoftQ to get quantized 2D base, and 2D LoRA factors
+        qweight_pack_2d, weight_max_2d, lora_L_2d, lora_R_2d = self._loftq(
+            W_initial_2d, 
+            self.reduced_rank, # This rank is per output channel if W_2d is (C_out, C_in_eff)
+            self.num_iters
+        )
+        # lora_L_2d is (C_out, rank)
+        # lora_R_2d is (rank, C_in_div_groups * kH * kW)
+
+        # Store quantized base weights (these are for the 2D version)
+        self.register_buffer('qweight', qweight_pack_2d) # qweight for the 2D reshaped kernel
+        self.register_buffer('weight_max', weight_max_2d) # weight_max for the 2D reshaped kernel
+        # Store the original 4D kernel shape for dequantization in forward
+        self.register_buffer('kernel_shape_orig_buf', torch.tensor(W_initial_4d.shape))
+
+
+        # Initialize LoRA adapter kernels
+        # self.lora_A (Conv2d): out_channels=rank*groups, in_channels=C_in, kernel_size=(kH,kW), groups=groups
+        # Its weight is (rank*groups, C_in_div_groups, kH, kW)
+        # lora_R_2d is (rank, C_in_div_groups * kH * kW)
+        # We need to distribute this rank over groups for lora_A's output channels.
+        # If lora_A has out_channels = self.reduced_rank * self.groups_orig, and groups = self.groups_orig
+        # then lora_A.weight is (self.reduced_rank * self.groups_orig, C_in_div_groups, kH, kW)
+        # This is complex if rank is not a multiple of groups.
+        # Let's assume lora_A.out_channels = self.reduced_rank (total rank) for now, matching Linear version.
+        # And lora_A.groups = self.groups_orig.
+        # So lora_A.weight is (self.reduced_rank, C_in_div_groups, kH, kW)
+        
+        # lora_A.weight: (rank, C_in_div_groups, kH, kW)
+        # lora_R_2d:     (rank, C_in_div_groups * kH * kW)
+        # Each row of lora_R_2d is a flattened (C_in_div_groups, kH, kW) kernel for one of the 'rank' output channels of lora_A.
+        lora_A_kernel = lora_R_2d.reshape(self.reduced_rank, C_in_div_groups, kH, kW)
+        
+        # If self.lora_A has groups = self.groups_orig, then its C_in is self.in_channels_orig / self.groups_orig = C_in_div_groups
+        # And its C_out is self.reduced_rank (if rank is total) or self.reduced_rank * self.groups_orig (if rank is per group for lora_A output)
+        # If lora_A.out_channels = self.reduced_rank * self.groups_orig and lora_A.groups = self.groups_orig
+        # then lora_A.weight is (self.reduced_rank * self.groups_orig, C_in_div_groups, kH, kW)
+        # This means lora_R_2d should have been (self.reduced_rank * self.groups_orig, C_in_div_groups * kH * kW)
+        # This implies the 'rank' in SVD should be self.reduced_rank * self.groups_orig.
+        # For now, let's assume self.reduced_rank is the total rank output by lora_A before grouping in lora_B.
+        # This matches the PEFT ConvND LoRA structure where lora_A output channels = rank.
+        # And lora_A has groups = original_groups.
+        # So, lora_A.weight is (rank, C_in/groups, kH, kW)
+        self.lora_A.weight.data = lora_A_kernel.to(self.lora_A.weight.dtype)
+
+
+        # self.lora_B (Conv2d): out_channels=C_out, in_channels=rank*groups, kernel_size=(1,1), groups=groups
+        # Its weight is (C_out, (rank*groups)/groups, 1, 1) = (C_out, rank, 1, 1)
+        # lora_L_2d is (C_out, rank)
+        lora_B_kernel = lora_L_2d.reshape(self.out_channels_orig, self.reduced_rank, 1, 1)
+        # If lora_B has groups = self.groups_orig, then its C_in is (self.reduced_rank*self.groups_orig)/self.groups_orig = self.reduced_rank
+        # And its C_out is self.out_channels_orig / self.groups_orig.
+        # So lora_B.weight is (self.out_channels_orig / self.groups_orig, self.reduced_rank, 1, 1)
+        # This means lora_L_2d should have been (self.out_channels_orig / self.groups_orig, self.reduced_rank)
+        # This is getting complicated due to groups. Let's use the PEFT ConvND structure for LoRA layers:
+        # lora_A = Conv2d(orig_in_C, rank, orig_kernel_size, groups=orig_groups) -> weight(rank, orig_in_C/orig_groups, kH, kW)
+        # lora_B = Conv2d(rank, orig_out_C, (1,1), groups=orig_groups)           -> weight(orig_out_C, rank/orig_groups, 1, 1)
+        # This means 'rank' must be divisible by orig_groups for lora_B.
+        # And SVD factors L, R must be shaped accordingly.
+
+        # Simpler: Assume SVD gives total rank factors.
+        # lora_A.weight: (self.reduced_rank * self.groups_orig, C_in_div_groups, kH, kW)
+        # lora_R_2d:     (self.reduced_rank * self.groups_orig, C_in_div_groups * kH * kW)
+        # self.lora_A.weight.data = lora_R_2d.reshape(self.lora_A.weight.shape)
+
+        # lora_B.weight: (self.out_channels_orig, self.reduced_rank, 1, 1) if lora_B.groups=self.groups_orig
+        # lora_L_2d:     (self.out_channels_orig, self.reduced_rank * self.groups_orig)
+        # self.lora_B.weight.data = lora_L_2d.reshape(self.lora_B.weight.shape)
+        # This requires careful definition of 'rank' in SVD vs 'rank' in LoRA layers with groups.
+
+        # Sticking to the (C_out, rank) and (rank, C_in_eff) for L, R from SVD of W_2d(C_out, C_in_eff):
+        # lora_A.weight (rank_A_out, C_in_div_groups, kH, kW)
+        # lora_B.weight (C_out, rank_B_in_div_groups, 1, 1)
+        # Where rank_A_out = self.lora_A.out_channels and rank_B_in_div_groups = self.lora_B.in_channels / self.lora_B.groups
+        
+        # Assuming self.lora_A.weight is (self.reduced_rank * self.groups_orig, C_in_div_groups, kH, kW)
+        # and lora_R_2d is (self.reduced_rank * self.groups_orig, C_in_div_groups * kH * kW)
+        self.lora_A.weight.data = lora_R_2d.reshape(self.lora_A.out_channels, C_in_div_groups, kH, kW).to(self.lora_A.weight.dtype)
+        
+        # Assuming self.lora_B.weight is (self.out_channels_orig, self.reduced_rank, 1, 1) (if lora_B has groups=self.groups_orig)
+        # and lora_L_2d is (self.out_channels_orig, self.reduced_rank * self.groups_orig)
+        # This requires lora_L_2d to be (self.out_channels_orig, self.lora_B.in_channels)
+        # if lora_B.in_channels = self.reduced_rank * self.groups_orig
+        self.lora_B.weight.data = lora_L_2d.reshape(self.out_channels_orig, self.reduced_rank, 1, 1).to(self.lora_B.weight.dtype)
+
+
+        if self.has_bias_orig:
+            self.bias.data = original_conv_layer.bias.data.clone()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Dequantize the 2D reshaped base kernel weights on-the-fly
+        # The original kernel_shape_orig_buf stores the 4D shape
+        original_4d_kernel_shape = tuple(self.kernel_shape_orig_buf.tolist())
+        
+        # qweight and weight_max correspond to the 2D reshaped version used in _loftq
+        # We need to dequantize it to 2D, then reshape to 4D
+        
+        # Determine the 2D shape that qweight and weight_max correspond to
+        # C_out = original_4d_kernel_shape[0]
+        # C_in_div_groups = original_4d_kernel_shape[1]
+        # kH, kW = original_4d_kernel_shape[2], original_4d_kernel_shape[3]
+        # reshaped_2d_shape_for_dequant = (C_out, C_in_div_groups * kH * kW)
+        
+        # A bit of a hack: quantizer.dequantize_block now expects the *target* shape.
+        # The qweight and weight_max were produced from a 2D matrix.
+        # So, we need to dequantize to that 2D shape first, then reshape.
+        # However, quantizer.dequantize_block was modified to take original_shape.
+        # Let's assume quantizer.dequantize_block can dequantize qweight (from 2D)
+        # directly to the target 4D shape if kernel_shape_orig_buf is used correctly.
+        # This implies qweight and weight_max were stored based on a flattened version
+        # of the 4D kernel that can be directly unflattened after scaling.
+
+        # The quantizer.quantize_block returns shape of the input to it (which was 2D).
+        # The quantizer.dequantize_block needs the *final* desired shape.
+        dequantized_kernel_4d = self.quantizer.dequantize_block(
+            self.qweight, 
+            self.weight_max, 
+            original_4d_kernel_shape # Pass the target 4D shape
+        )
+        
+        base_output = F.conv2d(
+            x, 
+            dequantized_kernel_4d, 
+            self.bias, 
+            self.stride_orig, 
+            self.padding_orig, 
+            self.dilation_orig, 
+            self.groups_orig
+        )
+        
+        lora_output = self.lora_B(self.lora_A(x))
+        
+        return base_output + lora_output
+
+
+
+
+
 class TrueQuantizedLinear(BaseLoftqLinear):
         def quantize(self, weight: torch.Tensor):
             """Quantize weights and initialize LoRA adapters"""

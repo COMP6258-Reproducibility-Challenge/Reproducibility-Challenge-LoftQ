@@ -84,6 +84,56 @@ def get_target_excluded_modules(model_name: str) -> Tuple[List[str], List[str]]:
     
     return target_modules, excluded_modules
 
+
+def convert_true_quant_conv_layer(module: nn.Module, model_args):
+    """
+    Recursively iterates through a module and replaces nn.Conv2d layers
+    with TrueQuantizedConv2d layers.
+    """
+    for child_name, child_module in module.named_children():
+        if isinstance(child_module, nn.Conv2d):
+            # Extract parameters from the original Conv2d layer
+            in_channels = child_module.in_channels
+            out_channels = child_module.out_channels
+            kernel_size = child_module.kernel_size
+            stride = child_module.stride
+            padding = child_module.padding
+            dilation = child_module.dilation
+            groups = child_module.groups
+            bias_exists = child_module.bias is not None
+
+            # Create the TrueQuantizedConv2d layer
+            # Ensure TrueQuantizedConv2d is imported or defined
+            from custom_loftq.loftq_cnn import TrueQuantizedConv2d # Adjust import path as needed
+
+            new_layer = TrueQuantizedConv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                bias=bias_exists,
+                quantization_bits=model_args.int_bit, # from your ModelArguments
+                reduced_rank=model_args.reduced_rank, # from your ModelArguments
+                num_iters=model_args.num_iter,       # from your ModelArguments
+                quantization_method=model_args.quant_method # from your ModelArguments
+                # Add other TrueQuantizedConv2d specific args if any from model_args
+            )
+            
+            # Quantize the new layer using the weights of the original layer
+            new_layer.quantize(child_module)
+            
+            # Replace the original layer with the new quantized layer
+            setattr(module, child_name, new_layer)
+            print(f"Replaced {child_name} with TrueQuantizedConv2d")
+
+        elif len(list(child_module.children())) > 0:
+            # Recursively apply to children
+            convert_true_quant_conv_layer(child_module, model_args)
+    return module
+
 def load_base_model(model_name:str, token: str, num_labels: Optional[int]) -> Tuple[Union[PreTrainedModel, torch.nn.Module], TaskType, AutoTokenizer, List[str], List[str]]:
     logging.warning("Loading base model")
     tokenizer = AutoTokenizer.from_pretrained(

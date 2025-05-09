@@ -1,0 +1,20 @@
+==============================================================================
+Running epilogue script on pink51.
+
+Submit time  : 2025-05-09T12:45:06
+Start time   : 2025-05-09T12:45:06
+End time     : 2025-05-09T13:18:53
+Elapsed time : 00:33:47 (Timelimit=20:00:00)
+
+Job ID: 7378772
+Cluster: i5
+User/Group: be1g21/fp
+State: FAILED (exit code 1)
+Nodes: 1
+Cores per node: 16
+CPU Utilized: 02:04:12
+CPU Efficiency: 22.98% of 09:00:32 core-walltime
+Job Wall-clock time: 00:33:47
+Memory Utilized: 10.05 GB
+Memory Efficiency: 0.00% of 16.00 B
+
