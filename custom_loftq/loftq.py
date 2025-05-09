@@ -1,29 +1,264 @@
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple, Union # Added Tuple and Union for type hints
 
 import torch
 from torch import nn
+import torch.nn.functional as F # Added for F.pad if used in BlockQuantizer
 from accelerate.utils.memory import clear_device_cache
+# from scipy.stats import norm # Conditionally imported in BlockQuantizer
 
+# Define compute_device (ensure this is consistent with your setup)
 if torch.cuda.is_available():
     compute_device = torch.device("cuda")
-elif torch.mps.is_available():
+elif torch.backends.mps.is_available(): # For Apple Silicon
     compute_device = torch.device("mps")
 else:
     compute_device = torch.device("cpu")
 
+# HELPER FUNCTIONS (Previously in utils.py, moved here to break circular imports)
+def index_dim(tensor: torch.Tensor, dim: int, start: int, block_size: int) -> torch.Tensor:
+    """
+    Indexes the tensor along a specified dimension.
+    """
+    slices = [slice(None)] * tensor.dim()
+    slices[dim] = slice(start, start + block_size)
+    return tensor[tuple(slices)]
 
-import utils
+def max_dim(m: torch.Tensor) -> Tuple[int, int]:
+    """
+    Finds the dimension index (from end, negative) with the most elements and its size.
+    """
+    if m.dim() == 0: 
+        return 0, 0 
+    if m.dim() == 1:
+        return -1, m.shape[0]
+    
+    dim_idx_from_start = torch.argmax(torch.tensor(m.shape)).item()
+    max_elements = m.shape[dim_idx_from_start]
+    dim_idx_from_end = dim_idx_from_start - m.dim()
+    
+    return dim_idx_from_end, max_elements
 
-# import time
+# --- BlockQuantizer ---
+class BlockQuantizer:
+    def __init__(self, num_bits: int = 2, method: str = "uniform", block_size: int = 64, device: Union[str, torch.device] = "cpu", *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs) # In case BlockQuantizer has a parent in user's full code
+        self.num_bits = num_bits
+        self.method = method
+        self.block_size = block_size
+        
+        self.current_device = torch.device(device) if isinstance(device, str) else device
 
+        if self.method == "normal":
+            self.norm_lookup_table = self.create_normal_map(num_bits=self.num_bits)
+        elif self.method == "uniform":
+            self.norm_lookup_table = self.create_uniform_map(num_bits=self.num_bits)
+        else:
+            raise NotImplementedError(f"Quantization method '{method}' not implemented.")
+        self.norm_lookup_table = self.norm_lookup_table.to(self.current_device)
+
+    @staticmethod
+    def create_uniform_map(symmetric: bool = False, num_bits: int = 4) -> torch.Tensor:
+        if symmetric:
+            negative_half_points = 2 ** (num_bits - 1)
+            positive_half_points = 2 ** (num_bits - 1)
+            negative = torch.linspace(-1, 0, negative_half_points)
+            positive = torch.linspace(0, 1, positive_half_points)
+            table = torch.cat([negative, positive[1:]]) # Avoid duplicating zero
+        else:
+            table = torch.linspace(-1, 1, 2**num_bits)
+        return table
+    
+    @staticmethod
+    def create_normal_map(offset: float = 0.9677083, symmetric: bool = False, num_bits: int = 2) -> torch.Tensor:
+        try:
+            from scipy.stats import norm
+        except ImportError:
+            raise ImportError("The required package 'scipy' is not installed. Please install it to use 'normal' quantization.")
+
+        variations = 2**num_bits
+        if symmetric:
+            v_ppf = torch.linspace(1 - offset, offset, variations + 1)
+            v = norm.ppf(v_ppf.clamp(1e-7, 1-1e-7)) # Clamp to avoid inf from ppf at 0 or 1
+            values = []
+            for index in range(len(v) - 1):
+                values.append(0.5 * v[index] + 0.5 * v[index + 1])
+            v_tensor = torch.Tensor(values).float()
+        else: # Asymmetric (approximating NF4 style for general num_bits)
+            quantiles = torch.linspace(1e-5, 1.0 - 1e-5, variations) # Avoid exact 0 and 1 for ppf
+            v_tensor = torch.from_numpy(norm.ppf(quantiles.numpy())).float()
+
+
+        if v_tensor.abs().max() > 1e-7: # Avoid division by zero if all values are tiny
+             v_tensor = v_tensor / v_tensor.abs().max() # Normalize to [-1, 1] range
+        return v_tensor.sort().values
+
+    @staticmethod
+    def safe_subtract_argmin(a: torch.Tensor, b: torch.Tensor, block_size_safe_sub: int = 4096) -> torch.Tensor:
+        if a.numel() == 0 or b.numel() == 0: 
+            if a.numel() > 0 :
+                out_shape_list = list(a.shape)
+                if out_shape_list: out_shape_list[-1] = 1
+                return torch.empty(out_shape_list, dtype=torch.long, device="cpu")
+            return torch.empty(0, dtype=torch.long, device="cpu")
+
+        if a.numel() < b.numel(): 
+            return BlockQuantizer.safe_subtract_argmin(-b, -a, block_size_safe_sub)
+
+        max_dim_A_idx, max_num_A = max_dim(a) 
+        max_dim_B_idx, _ = max_dim(b)
+
+        result_list = []
+        for start in range(0, max_num_A, block_size_safe_sub):
+            actual_block_size_A = min(block_size_safe_sub, max_num_A - start)
+            if a.numel() == 1: 
+                a_chunk = a 
+            else:
+                a_chunk = index_dim(a, max_dim_A_idx, start, actual_block_size_A)
+            
+            b_chunk = b 
+            if b.numel() > 1 and (max_dim_B_idx == max_dim_A_idx and not (len(b.shape) < len(a.shape) or b.shape[max_dim_A_idx % b.dim()] == 1)):
+                 b_chunk = index_dim(b, max_dim_B_idx, start, actual_block_size_A)
+            
+            temp = torch.argmin(torch.abs(a_chunk.unsqueeze(-1) - b_chunk.view(1, -1)), dim=-1) 
+            result_list.append(temp.to("cpu"))
+
+        if not result_list:
+            if a.numel() > 0 :
+                out_shape_list = list(a.shape[:-1]) 
+                return torch.empty(out_shape_list, dtype=torch.long, device="cpu")
+            return torch.empty(0, dtype=torch.long, device="cpu")
+
+        cat_dim_positive = max_dim_A_idx if max_dim_A_idx >=0 else max_dim_A_idx + a.dim()
+        
+        if cat_dim_positive == a.dim() -1 and a.shape[-1] == b.shape[-1] and b.dim() == 1: 
+             pass 
+        elif a.dim() > 1 and result_list[0].dim() < a_chunk.dim() : 
+             if cat_dim_positive >= result_list[0].dim(): 
+                  cat_dim_positive = result_list[0].dim() -1 
+                  if cat_dim_positive < 0 and result_list[0].dim() > 0 : cat_dim_positive = 0
+
+        if result_list[0].dim() == 0 and len(result_list) > 1: 
+            concatenated_result = torch.stack(result_list, dim=0) 
+        elif result_list[0].dim() == 0 and len(result_list) == 1:
+            concatenated_result = result_list[0] 
+        elif all(r.shape == result_list[0].shape for r in result_list) or cat_dim_positive < result_list[0].dim():
+            try:
+                concatenated_result = torch.cat(result_list, dim=cat_dim_positive if result_list[0].dim() > 0 else 0)
+            except RuntimeError as e: 
+                if all(r.numel() == 1 for r in result_list): 
+                    concatenated_result = torch.tensor([r.item() for r in result_list], device="cpu")
+                else:
+                    print(f"Warning: Could not concatenate results in safe_subtract_argmin. Shapes: {[r.shape for r in result_list]}, cat_dim: {cat_dim_positive}")
+                    return result_list[0] if len(result_list) == 1 else torch.stack(result_list) 
+        else: 
+            print(f"Warning: Inconsistent shapes for concatenation in safe_subtract_argmin. Shapes: {[r.shape for r in result_list]}")
+            return result_list[0] if len(result_list) == 1 else torch.stack(result_list) 
+
+        return concatenated_result
+
+
+    def quantize_block(self, weight_2d: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, Tuple[int, int]]:
+        if weight_2d.dim() != 2:
+            raise ValueError(f"Input weight must be 2D. Got {weight_2d.dim()} dimensions.")
+        if weight_2d.numel() == 0:
+            return torch.empty(0, dtype=torch.uint8, device=self.current_device), \
+                   torch.empty(0, dtype=weight_2d.dtype, device=self.current_device), \
+                   weight_2d.shape
+
+        original_shape = weight_2d.shape
+        device = weight_2d.device 
+        self.norm_lookup_table = self.norm_lookup_table.to(device)
+
+        weight_flat = weight_2d.flatten()
+        num_total_elements = weight_flat.numel()
+        
+        num_blocks_total = (num_total_elements + self.block_size - 1) // self.block_size
+        padded_total_size = num_blocks_total * self.block_size
+        padding_needed_total = padded_total_size - weight_flat.numel()
+
+        if padding_needed_total > 0:
+            weight_flat_padded = F.pad(weight_flat, (0, padding_needed_total))
+        else:
+            weight_flat_padded = weight_flat
+        
+        weight_blocks_padded = weight_flat_padded.reshape(num_blocks_total, self.block_size)
+
+        if self.method == "normal":
+            scales = weight_blocks_padded.abs().max(dim=-1, keepdim=False)[0] 
+        elif self.method == "uniform":
+            scales = weight_blocks_padded.abs().max(dim=-1, keepdim=False)[0]
+        else:
+            raise NotImplementedError("Method not supported yet.")
+        
+        scales = torch.where(scales == 0, torch.tensor(1.0, device=device, dtype=scales.dtype), scales)
+        
+        scaled_weights = weight_blocks_padded / scales.unsqueeze(-1)
+        
+        qweight_indices = torch.argmin(torch.abs(scaled_weights.unsqueeze(-1) - self.norm_lookup_table.view(1, 1, -1)), dim=-1)
+        qweight_indices_flat = qweight_indices.flatten()
+
+        if self.num_bits < 8:
+            bits_per_byte = 8 // self.num_bits
+            qweight_reshaped = qweight_indices_flat.reshape(-1, bits_per_byte)
+            qweight_pack = torch.zeros((qweight_reshaped.shape[0], 1), dtype=torch.uint8, device=device)
+            for i in range(bits_per_byte):
+                qweight_pack[:, 0] |= qweight_reshaped[:, i].to(torch.uint8) << (i * self.num_bits)
+        elif self.num_bits == 8:
+            qweight_pack = qweight_indices_flat.to(torch.uint8).unsqueeze(-1)
+        else:
+            qweight_pack = qweight_indices_flat.to(torch.int32) 
+
+        return qweight_pack, scales, original_shape
+
+    def dequantize_block(self, qweight_pack: torch.Tensor, scales: torch.Tensor, target_original_shape: Tuple[int, int]) -> torch.Tensor:
+        if qweight_pack.numel() == 0:
+            return torch.empty(target_original_shape, dtype=scales.dtype, device=qweight_pack.device)
+
+        device = qweight_pack.device
+        self.norm_lookup_table = self.norm_lookup_table.to(device)
+        scales = scales.to(device)
+
+        if self.num_bits < 8:
+            bits_per_byte = 8 // self.num_bits
+            mask = (1 << self.num_bits) - 1
+            unpacked_indices_list = []
+            for i in range(bits_per_byte):
+                shift = i * self.num_bits
+                indices = (qweight_pack.squeeze(-1) >> shift) & mask 
+                unpacked_indices_list.append(indices) # Corrected: append individual unpacked indices
+            qweight_indices_flat = torch.stack(unpacked_indices_list, dim=-1).view(-1).long()
+        elif self.num_bits == 8:
+            qweight_indices_flat = qweight_pack.squeeze(-1).long()
+        else:
+            qweight_indices_flat = qweight_pack.long()
+
+        dequantized_flat_padded_normalized = self.norm_lookup_table[qweight_indices_flat]
+        
+        num_blocks_total = scales.shape[0]
+        # Ensure block_size_used calculation is robust if dequantized_flat_padded_normalized.numel() is not perfectly divisible
+        if num_blocks_total == 0: # Avoid division by zero if scales is empty
+            block_size_used = self.block_size # Default or handle error
+        else:
+            block_size_used = dequantized_flat_padded_normalized.numel() // num_blocks_total
+        
+        dequantized_blocks_normalized = dequantized_flat_padded_normalized.reshape(num_blocks_total, block_size_used)
+        scaled_blocks = dequantized_blocks_normalized * scales.unsqueeze(-1)
+        
+        scaled_flat_padded = scaled_blocks.view(-1)
+        original_numel = target_original_shape[0] * target_original_shape[1]
+        dequantized_flat = scaled_flat_padded[:original_numel]
+        
+        return dequantized_flat.reshape(target_original_shape)
+
+# --- LoftQ Linear Layers ---
 class BaseLoftqLinear(nn.Module):
     def __init__(
         self,
         base_layer: nn.Linear,
         quantization_bits: int = 4,
         reduced_rank: int = 16,
-        num_iters: int = 5,
+        num_iters: int = 1, 
         quantization_method: str = "uniform"
     ):
         super().__init__()
@@ -41,711 +276,192 @@ class BaseLoftqLinear(nn.Module):
         
         self.quantization_bits = quantization_bits
         self.reduced_rank = reduced_rank
-        self.num_iters = num_iters
+        self.num_iters = num_iters 
         self.quantization_method = quantization_method
         self.quantizer = BlockQuantizer(
             num_bits=quantization_bits, 
             device=compute_device, 
             method=quantization_method, 
-            block_size=64
+            block_size=64 
         )
         
-    def quantize(self):
-        pass
+    def quantize(self, weight: torch.Tensor):
+        raise NotImplementedError
     
-    def _loftq(self, weight, reduced_rank, num_iter):
-        """Apply LoftQ algorithm to get quantized weights and LoRA factors"""
-        dtype = weight.dtype
+    def _loftq(self, weight_2d: torch.Tensor, reduced_rank: int, num_iter: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Tuple[int,int], torch.Tensor, torch.Tensor]:
+        current_dtype = weight_2d.dtype
+        weight_2d_float32 = weight_2d.clone().to(device=compute_device, dtype=torch.float32)
         
-        weight = weight.to(device=compute_device, dtype=torch.float32)
-        res = weight.clone()
-        
-        for i in range(num_iter):
-            clear_device_cache()
-            
-            # Quantize the residual
-            quantized_weight, max_abs, shape = self.quantizer.quantize_block(res)
-            dequantized_weight = self.quantizer.dequantize_block(quantized_weight, max_abs, shape)
-        
-            res = weight - dequantized_weight
-        
-            # Decompose the residual by SVD
-            L, R = self._low_rank_decomposition(res, reduced_rank=reduced_rank)
-            res = weight - torch.mm(L, R)
-        
-        # Return both the quantized representation and the LoRA factors
-        return quantized_weight, dequantized_weight.to(device=compute_device, dtype=dtype), max_abs, shape, R, L
+        q_packed_base, scales_base, _ = self.quantizer.quantize_block(weight_2d_float32)
+        dequantized_base_2d_float32 = self.quantizer.dequantize_block(q_packed_base, scales_base, weight_2d_float32.shape)
     
-    def _low_rank_decomposition(self, weight, reduced_rank=16):
-        """
-        :param weight: The matrix to decompose, of shape (H, W) :param reduced_rank: the final rank :return:
-        """
-        matrix_dimension = len(weight.size())
-        if matrix_dimension != 2:
-            raise ValueError(f"Only support 2D matrix, but your input has {matrix_dimension} dimensions.")
-
-        # Use SVD to decompose a matrix, default full_matrices is False to save parameters
-        U, S, Vh = torch.linalg.svd(weight, full_matrices=False)
-
-        L = U @ (torch.sqrt(torch.diag(S)[:, 0:reduced_rank]))
-        R = torch.sqrt(torch.diag(S)[0:reduced_rank, :]) @ Vh
-
-        return L, R
-        # return {"L": L, "R": R, "U": U, "S": S, "Vh": Vh, "reduced_rank": reduced_rank}
-
-
-#########################################################
-#TRUE QUANTIZER
-#########################################################
-
-
-class TrueQuantizedConv2d(nn.Module):
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        kernel_size: int | tuple[int, int],
-        stride: int | tuple[int, int] = 1,
-        padding: int | tuple[int, int] | str = 0,
-        dilation: int | tuple[int, int] = 1,
-        groups: int = 1,
-        bias: bool = True,
-        quantization_bits: int = 4,
-        reduced_rank: int = 16,
-        num_iters: int = 1, # As per LoftQ paper, T=1 is often sufficient
-        quantization_method: str = "uniform", # "uniform" or "normal"
-        lora_A_kernel_size_from_orig: bool = True, # If True, lora_A uses original kernel_size
-        lora_A_bias: bool = False,
-        lora_B_bias: bool = False,
-    ):
-        super().__init__()
-        self.in_channels_orig = in_channels
-        self.out_channels_orig = out_channels
-
-        if isinstance(kernel_size, int):
-            self.kernel_size_orig = (kernel_size, kernel_size)
-        else:
-            self.kernel_size_orig = kernel_size
+        residual_for_svd_float32 = weight_2d_float32 - dequantized_base_2d_float32
         
-        if isinstance(stride, int):
-            self.stride_orig = (stride, stride)
-        else:
-            self.stride_orig = stride
+        actual_reduced_rank = min(reduced_rank, residual_for_svd_float32.shape[0], residual_for_svd_float32.shape[1])
+        if actual_reduced_rank < reduced_rank:
+            print(f"Warning: SVD rank reduced from {reduced_rank} to {actual_reduced_rank} due to matrix dimensions.")
 
-        # padding_orig can be int, tuple or str. F.conv2d handles string padding.
-        self.padding_orig = padding
+        L_factor_float32, R_factor_float32 = self._low_rank_decomposition(residual_for_svd_float32, actual_reduced_rank) 
         
-        if isinstance(dilation, int):
-            self.dilation_orig = (dilation, dilation)
-        else:
-            self.dilation_orig = dilation
-            
-        self.groups_orig = groups
-        self.has_bias_orig = bias
+        return (q_packed_base, 
+                dequantized_base_2d_float32.to(current_dtype), 
+                scales_base, 
+                weight_2d.shape, 
+                R_factor_float32.to(current_dtype), 
+                L_factor_float32.to(current_dtype)) 
+    
+    def _low_rank_decomposition(self, weight_2d_residual: torch.Tensor, reduced_rank: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        if weight_2d_residual.dim() != 2:
+            raise ValueError(f"Only support 2D matrix, but input has {weight_2d_residual.dim()} dimensions.")
+        if reduced_rank == 0: 
+            return torch.zeros((weight_2d_residual.shape[0], 0), device=weight_2d_residual.device, dtype=weight_2d_residual.dtype), \
+                   torch.zeros((0, weight_2d_residual.shape[1]), device=weight_2d_residual.device, dtype=weight_2d_residual.dtype)
 
-        self.quantization_bits = quantization_bits
-        self.reduced_rank = reduced_rank
-        self.num_iters = num_iters
-        self.quantization_method = quantization_method
+        U, S, Vh = torch.linalg.svd(weight_2d_residual, full_matrices=False)
 
-        # LoRA Adapters (as nn.Conv2d)
-        # lora_A: Applies original kernel_size, projects from in_channels to rank
-        # lora_B: Applies 1x1 kernel, projects from rank to out_channels
-        
-        lora_A_actual_kernel_size = self.kernel_size_orig if lora_A_kernel_size_from_orig else (1,1)
-        # For lora_A, input channels are original_in_channels / original_groups, output channels are rank
-        # The nn.Conv2d groups parameter will handle the division of in_channels for lora_A
-        self.lora_A = nn.Conv2d(
-            in_channels=self.in_channels_orig, 
-            out_channels=self.reduced_rank * self.groups_orig, # rank per group
-            kernel_size=lora_A_actual_kernel_size,
-            stride=self.stride_orig if lora_A_kernel_size_from_orig else (1,1), # Stride 1 for 1x1, else original
-            padding=self.padding_orig if lora_A_kernel_size_from_orig else 0, # Padding 0 for 1x1, else original
-            dilation=self.dilation_orig if lora_A_kernel_size_from_orig else (1,1), # Dilation 1 for 1x1, else original
-            groups=self.groups_orig,
-            bias=lora_A_bias 
-        )
-        # For lora_B, input channels are rank (total, across all groups), output channels are original_out_channels
-        # It acts like a pointwise convolution across groups after lora_A
-        self.lora_B = nn.Conv2d(
-            in_channels=self.reduced_rank * self.groups_orig, # rank per group
-            out_channels=self.out_channels_orig,
-            kernel_size=(1, 1),
-            groups=self.groups_orig, # Maintain grouping structure
-            bias=lora_B_bias
-        )
-
-        if self.has_bias_orig:
-            self.bias = nn.Parameter(torch.zeros(self.out_channels_orig))
-        else:
-            self.register_parameter('bias', None)
-
-        self.quantizer = BlockQuantizer(
-            num_bits=quantization_bits, 
-            device=compute_device, # Make sure compute_device is defined
-            method=quantization_method,
-            block_size=64 # Default block size, can be configured
-        )
-
-        # Buffers for quantized weights (will be registered in quantize method)
-        # self.qweight, self.weight_max, self.kernel_shape_orig_buf
-
-    def _low_rank_decomposition(self, weight_2d: torch.Tensor, reduced_rank: int):
-        U, S, Vh = torch.linalg.svd(weight_2d, full_matrices=False)
-        
-        # L = U @ sqrt(diag(S))
-        # R = sqrt(diag(S)) @ Vh
-        # Here, we want L (out_dim, rank) and R (rank, in_dim_2d)
-        # such that L @ R approximates weight_2d
-        
         L_factor = U[:, :reduced_rank] @ torch.diag(S[:reduced_rank].sqrt())
         R_factor = torch.diag(S[:reduced_rank].sqrt()) @ Vh[:reduced_rank, :]
         
-        return L_factor, R_factor # L_factor is (C_out, rank), R_factor is (rank, C_in_eff * kH * kW)
+        return L_factor, R_factor
 
-    def _loftq(self, weight_2d: torch.Tensor, reduced_rank: int, num_iter: int):
-        dtype = weight_2d.dtype # Should be float32 for SVD stability
-        current_residual_2d = weight_2d.clone().to(torch.float32) # Work in float32
+class TrueQuantizedLinear(BaseLoftqLinear):
+    def quantize(self, weight: torch.Tensor): 
+        W_initial_2d = weight.clone() 
         
-        # Initialize LoRA factors to zero or small random values if preferred
-        # For simplicity, we'll effectively build them up from the residual of the final quantized base
-        final_L = torch.zeros((weight_2d.shape[0], reduced_rank), device=compute_device, dtype=torch.float32)
-        final_R = torch.zeros((reduced_rank, weight_2d.shape[1]), device=compute_device, dtype=torch.float32)
-
-        q_base_weight_2d = torch.zeros_like(weight_2d, device=compute_device, dtype=torch.float32)
-
-        for i in range(num_iter):
-            # Quantize the current residual
-            qweight_pack, weight_max_val, _ = self.quantizer.quantize_block(current_residual_2d)
-            dequantized_current_residual_2d = self.quantizer.dequantize_block(qweight_pack, weight_max_val, current_residual_2d.shape)
-
-            # The quantized part for this iteration is dequantized_current_residual_2d
-            # The new residual for SVD is weight_2d - dequantized_current_residual_2d
-            
-            if i == num_iters - 1: # Last iteration
-                # The base quantized weight is the dequantized residual from the last step
-                q_base_weight_2d = dequantized_current_residual_2d
-                # The final residual for SVD is the original weight minus this base quantized weight
-                svd_residual_2d = weight_2d - q_base_weight_2d
-                L_iter, R_iter = self._low_rank_decomposition(svd_residual_2d, reduced_rank)
-                final_L = L_iter
-                final_R = R_iter
-            else: # Not the last iteration (if num_iter > 1)
-                 # This part is more complex if we strictly follow alternating optimization.
-                 # For T=1 (num_iter=1), this loop runs once.
-                 # Q_t = q_N(W - A_{t-1}B_{t-1}^T)
-                 # A_tB_t^T = SVD(W - Q_t)
-                 # For simplicity and matching LoftQ paper's T=1 effectiveness:
-                 # 1. Quantize W to get Q_W.
-                 # 2. Perform SVD on W - Q_W to get L, R.
-                 # This means the loop structure here simplifies if num_iter=1.
-                 # The provided TrueQuantizedLinear implies num_iter is for the SVD part.
-                 # Let's stick to the paper's Algorithm 1:
-                 # Q_t = q_N(W - A_{t-1}B_{t-1}^T)
-                 # A_t, B_t = SVD(W - Q_t)
-                 # For the first iteration (t=1), A_0B_0^T = 0. So Q_1 = q_N(W).
-                 # Then A_1, B_1 from SVD(W - Q_1).
-
-                 # If num_iter > 1, this needs proper alternating optimization.
-                 # The provided linear layer's _loftq seems to do iterative refinement of SVD on the residual.
-                 # Let's assume num_iter=1 for now, matching the paper's common case.
-                 # If num_iter > 1, the logic from BaseLoftqLinear should be adapted more carefully.
-                 # For now, this placeholder makes it T=1 like.
-                 pass
-
-
-        # For T=1: q_base_weight_2d is Q(W), final_L, final_R are from SVD(W - Q(W))
-        # We need qweight_pack and weight_max for Q(W)
-        qpack_for_base, wmax_for_base, _ = self.quantizer.quantize_block(q_base_weight_2d.to(dtype)) # quantize the dequantized version to get its pack
-        
-        return qpack_for_base, wmax_for_base, final_L.to(dtype), final_R.to(dtype)
-
-
-    def quantize(self, original_conv_layer: nn.Conv2d):
-        W_initial_4d = original_conv_layer.weight.data.clone()
-        C_out, C_in_div_groups, kH, kW = W_initial_4d.shape
-        # C_in = C_in_div_groups * self.groups_orig
-
-        # Reshape 4D kernel to 2D: (C_out, C_in_div_groups * kH * kW * groups_orig)
-        # More robustly: (C_out, C_in_div_groups * kH * kW) if we process per group for SVD,
-        # or flatten more aggressively if groups > 1 and SVD is on the whole matrix.
-        # Standard LoftQ formulation implies SVD on the full effective weight matrix.
-        # If groups > 1, the nn.Conv2d weight is (C_out, C_in/groups, kH, kW).
-        # The effective C_in for the whole layer is self.in_channels_orig.
-        # Let's reshape to (C_out, (C_in_div_groups * kH * kW))
-        # This means we are factorizing each of C_out kernels independently.
-        
-        # Reshape to (C_out, C_in_div_groups * kH * kW)
-        # This implies SVD is applied to the matrix that maps (flattened_group_kernels) to (output_channels)
-        W_initial_2d = W_initial_4d.reshape(C_out, -1)
-
-        # Apply LoftQ to get quantized 2D base, and 2D LoRA factors
-        qweight_pack_2d, weight_max_2d, lora_L_2d, lora_R_2d = self._loftq(
+        qweight_pack, _, scales, shape_2d, r_factor, l_factor = self._loftq(
             W_initial_2d, 
-            self.reduced_rank, # This rank is per output channel if W_2d is (C_out, C_in_eff)
+            self.reduced_rank, 
             self.num_iters
         )
-        # lora_L_2d is (C_out, rank)
-        # lora_R_2d is (rank, C_in_div_groups * kH * kW)
-
-        # Store quantized base weights (these are for the 2D version)
-        self.register_buffer('qweight', qweight_pack_2d) # qweight for the 2D reshaped kernel
-        self.register_buffer('weight_max', weight_max_2d) # weight_max for the 2D reshaped kernel
-        # Store the original 4D kernel shape for dequantization in forward
-        self.register_buffer('kernel_shape_orig_buf', torch.tensor(W_initial_4d.shape))
-
-
-        # Initialize LoRA adapter kernels
-        # self.lora_A (Conv2d): out_channels=rank*groups, in_channels=C_in, kernel_size=(kH,kW), groups=groups
-        # Its weight is (rank*groups, C_in_div_groups, kH, kW)
-        # lora_R_2d is (rank, C_in_div_groups * kH * kW)
-        # We need to distribute this rank over groups for lora_A's output channels.
-        # If lora_A has out_channels = self.reduced_rank * self.groups_orig, and groups = self.groups_orig
-        # then lora_A.weight is (self.reduced_rank * self.groups_orig, C_in_div_groups, kH, kW)
-        # This is complex if rank is not a multiple of groups.
-        # Let's assume lora_A.out_channels = self.reduced_rank (total rank) for now, matching Linear version.
-        # And lora_A.groups = self.groups_orig.
-        # So lora_A.weight is (self.reduced_rank, C_in_div_groups, kH, kW)
         
-        # lora_A.weight: (rank, C_in_div_groups, kH, kW)
-        # lora_R_2d:     (rank, C_in_div_groups * kH * kW)
-        # Each row of lora_R_2d is a flattened (C_in_div_groups, kH, kW) kernel for one of the 'rank' output channels of lora_A.
-        lora_A_kernel = lora_R_2d.reshape(self.reduced_rank, C_in_div_groups, kH, kW)
+        self.register_buffer('qweight', qweight_pack)
+        self.register_buffer('weight_scales', scales) 
+        self.register_buffer('weight_shape_buf', torch.tensor(shape_2d, device=compute_device))
         
-        # If self.lora_A has groups = self.groups_orig, then its C_in is self.in_channels_orig / self.groups_orig = C_in_div_groups
-        # And its C_out is self.reduced_rank (if rank is total) or self.reduced_rank * self.groups_orig (if rank is per group for lora_A output)
-        # If lora_A.out_channels = self.reduced_rank * self.groups_orig and lora_A.groups = self.groups_orig
-        # then lora_A.weight is (self.reduced_rank * self.groups_orig, C_in_div_groups, kH, kW)
-        # This means lora_R_2d should have been (self.reduced_rank * self.groups_orig, C_in_div_groups * kH * kW)
-        # This implies the 'rank' in SVD should be self.reduced_rank * self.groups_orig.
-        # For now, let's assume self.reduced_rank is the total rank output by lora_A before grouping in lora_B.
-        # This matches the PEFT ConvND LoRA structure where lora_A output channels = rank.
-        # And lora_A has groups = original_groups.
-        # So, lora_A.weight is (rank, C_in/groups, kH, kW)
-        self.lora_A.weight.data = lora_A_kernel.to(self.lora_A.weight.dtype)
-
-
-        # self.lora_B (Conv2d): out_channels=C_out, in_channels=rank*groups, kernel_size=(1,1), groups=groups
-        # Its weight is (C_out, (rank*groups)/groups, 1, 1) = (C_out, rank, 1, 1)
-        # lora_L_2d is (C_out, rank)
-        lora_B_kernel = lora_L_2d.reshape(self.out_channels_orig, self.reduced_rank, 1, 1)
-        # If lora_B has groups = self.groups_orig, then its C_in is (self.reduced_rank*self.groups_orig)/self.groups_orig = self.reduced_rank
-        # And its C_out is self.out_channels_orig / self.groups_orig.
-        # So lora_B.weight is (self.out_channels_orig / self.groups_orig, self.reduced_rank, 1, 1)
-        # This means lora_L_2d should have been (self.out_channels_orig / self.groups_orig, self.reduced_rank)
-        # This is getting complicated due to groups. Let's use the PEFT ConvND structure for LoRA layers:
-        # lora_A = Conv2d(orig_in_C, rank, orig_kernel_size, groups=orig_groups) -> weight(rank, orig_in_C/orig_groups, kH, kW)
-        # lora_B = Conv2d(rank, orig_out_C, (1,1), groups=orig_groups)           -> weight(orig_out_C, rank/orig_groups, 1, 1)
-        # This means 'rank' must be divisible by orig_groups for lora_B.
-        # And SVD factors L, R must be shaped accordingly.
-
-        # Simpler: Assume SVD gives total rank factors.
-        # lora_A.weight: (self.reduced_rank * self.groups_orig, C_in_div_groups, kH, kW)
-        # lora_R_2d:     (self.reduced_rank * self.groups_orig, C_in_div_groups * kH * kW)
-        # self.lora_A.weight.data = lora_R_2d.reshape(self.lora_A.weight.shape)
-
-        # lora_B.weight: (self.out_channels_orig, self.reduced_rank, 1, 1) if lora_B.groups=self.groups_orig
-        # lora_L_2d:     (self.out_channels_orig, self.reduced_rank * self.groups_orig)
-        # self.lora_B.weight.data = lora_L_2d.reshape(self.lora_B.weight.shape)
-        # This requires careful definition of 'rank' in SVD vs 'rank' in LoRA layers with groups.
-
-        # Sticking to the (C_out, rank) and (rank, C_in_eff) for L, R from SVD of W_2d(C_out, C_in_eff):
-        # lora_A.weight (rank_A_out, C_in_div_groups, kH, kW)
-        # lora_B.weight (C_out, rank_B_in_div_groups, 1, 1)
-        # Where rank_A_out = self.lora_A.out_channels and rank_B_in_div_groups = self.lora_B.in_channels / self.lora_B.groups
-        
-        # Assuming self.lora_A.weight is (self.reduced_rank * self.groups_orig, C_in_div_groups, kH, kW)
-        # and lora_R_2d is (self.reduced_rank * self.groups_orig, C_in_div_groups * kH * kW)
-        self.lora_A.weight.data = lora_R_2d.reshape(self.lora_A.out_channels, C_in_div_groups, kH, kW).to(self.lora_A.weight.dtype)
-        
-        # Assuming self.lora_B.weight is (self.out_channels_orig, self.reduced_rank, 1, 1) (if lora_B has groups=self.groups_orig)
-        # and lora_L_2d is (self.out_channels_orig, self.reduced_rank * self.groups_orig)
-        # This requires lora_L_2d to be (self.out_channels_orig, self.lora_B.in_channels)
-        # if lora_B.in_channels = self.reduced_rank * self.groups_orig
-        self.lora_B.weight.data = lora_L_2d.reshape(self.out_channels_orig, self.reduced_rank, 1, 1).to(self.lora_B.weight.dtype)
-
-
-        if self.has_bias_orig:
-            self.bias.data = original_conv_layer.bias.data.clone()
+        self.lora_A.weight.data = r_factor.to(self.lora_A.weight.dtype)
+        self.lora_B.weight.data = l_factor.to(self.lora_B.weight.dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Dequantize the 2D reshaped base kernel weights on-the-fly
-        # The original kernel_shape_orig_buf stores the 4D shape
-        original_4d_kernel_shape = tuple(self.kernel_shape_orig_buf.tolist())
+        original_2d_shape = tuple(self.weight_shape_buf.tolist())
         
-        # qweight and weight_max correspond to the 2D reshaped version used in _loftq
-        # We need to dequantize it to 2D, then reshape to 4D
-        
-        # Determine the 2D shape that qweight and weight_max correspond to
-        # C_out = original_4d_kernel_shape[0]
-        # C_in_div_groups = original_4d_kernel_shape[1]
-        # kH, kW = original_4d_kernel_shape[2], original_4d_kernel_shape[3]
-        # reshaped_2d_shape_for_dequant = (C_out, C_in_div_groups * kH * kW)
-        
-        # A bit of a hack: quantizer.dequantize_block now expects the *target* shape.
-        # The qweight and weight_max were produced from a 2D matrix.
-        # So, we need to dequantize to that 2D shape first, then reshape.
-        # However, quantizer.dequantize_block was modified to take original_shape.
-        # Let's assume quantizer.dequantize_block can dequantize qweight (from 2D)
-        # directly to the target 4D shape if kernel_shape_orig_buf is used correctly.
-        # This implies qweight and weight_max were stored based on a flattened version
-        # of the 4D kernel that can be directly unflattened after scaling.
-
-        # The quantizer.quantize_block returns shape of the input to it (which was 2D).
-        # The quantizer.dequantize_block needs the *final* desired shape.
-        dequantized_kernel_4d = self.quantizer.dequantize_block(
+        dequantized_weight = self.quantizer.dequantize_block(
             self.qweight, 
-            self.weight_max, 
-            original_4d_kernel_shape # Pass the target 4D shape
+            self.weight_scales, 
+            original_2d_shape 
         )
         
-        base_output = F.conv2d(
-            x, 
-            dequantized_kernel_4d, 
-            self.bias, 
-            self.stride_orig, 
-            self.padding_orig, 
-            self.dilation_orig, 
-            self.groups_orig
-        )
-        
+        base_output = F.linear(x, dequantized_weight, self.bias)
         lora_output = self.lora_B(self.lora_A(x))
         
         return base_output + lora_output
-
-
-
-
-
-class TrueQuantizedLinear(BaseLoftqLinear):
-        def quantize(self, weight: torch.Tensor):
-            """Quantize weights and initialize LoRA adapters"""
-            W_initial = weight.clone()
-            
-            # Apply LoftQ to get quantized weights and LoRA factors
-            qweight_pack, dequantized_weight, weight_max, weight_shape, lora_A, lora_B = self._loftq(
-                W_initial, 
-                self.reduced_rank, 
-                self.num_iters
-            )
-            
-            # Store quantized weights as buffers (not parameters)
-            self.register_buffer('qweight', qweight_pack)
-            self.register_buffer('weight_max', weight_max)
-            self.register_buffer('weight_shape', torch.tensor(weight_shape))
-            
-            # Initialize LoRA adapters
-            self.lora_A.weight.data = lora_A
-            self.lora_B.weight.data = lora_B
-
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            """Forward pass with on-the-fly dequantization"""
-            # Dequantize weights
-            weight = self.quantizer.dequantize_block(
-                self.qweight, 
-                self.weight_max, 
-                (self.weight_shape[0].item(), self.weight_shape[1].item())
-            )
-            
-            # Compute the base output using dequantized weights
-            base_output = nn.functional.linear(x, weight, self.bias)
-            
-            # Apply LoRA adapters
-            lora_output = self.lora_B(self.lora_A(x))
-            
-            return base_output + lora_output
         
-
 class LoraLinearLayer(BaseLoftqLinear):
     def __init__(
         self,
-        base_layer: nn.Linear,
+        original_base_layer: nn.Linear, 
         quantization_bits: int = 4,
         reduced_rank: int = 16,
-        num_iters: int = 5,
+        num_iters: int = 1,
         quantization_method: str = "uniform"
     ):
+        dequantized_internal_base = nn.Linear(
+            original_base_layer.in_features, 
+            original_base_layer.out_features, 
+            bias=(original_base_layer.bias is not None)
+        )
+        if original_base_layer.bias is not None:
+            dequantized_internal_base.bias.data = original_base_layer.bias.data.clone()
+        
         super().__init__(
-            base_layer,
+            dequantized_internal_base, 
             quantization_bits,
             reduced_rank,
             num_iters,
             quantization_method
         )
         
-        self.base_layer = base_layer
-        
-        for param in self.base_layer.parameters():
+        self.internal_dequantized_base_layer = dequantized_internal_base
+
+        for param in self.internal_dequantized_base_layer.parameters():
             param.requires_grad = False
             
-    def quantize(self):
-        W_initial = self.base_layer.weight.data.clone()
+    def quantize(self, original_linear_layer_weight: torch.Tensor):
+        W_initial_2d = original_linear_layer_weight.clone()
         
-        qweight_pack, dequantized_weight, weight_max, weight_shape, lora_A, lora_B = self._loftq(W_initial, self.reduced_rank, self.num_iters)
+        _, dequantized_base_2d, _, _, r_factor, l_factor = self._loftq(
+            W_initial_2d, 
+            self.reduced_rank, 
+            self.num_iters
+        )
         
-        self.base_layer.weight.data = dequantized_weight
-        self.lora_A.weight.data = lora_A
-        self.lora_B.weight.data = lora_B
-        
-        del self.quantizer
+        self.internal_dequantized_base_layer.weight.data = dequantized_base_2d.to(
+            self.internal_dequantized_base_layer.weight.dtype
+        )
+
+        self.lora_A.weight.data = r_factor.to(self.lora_A.weight.dtype)
+        self.lora_B.weight.data = l_factor.to(self.lora_B.weight.dtype)
         
     def forward(self, x: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
-        out = self.base_layer(x, *args, **kwargs)
-        lora = self.lora_B(self.lora_A(x))
-        return out + lora
+        base_out = self.internal_dequantized_base_layer(x)
+        lora_delta = self.lora_B(self.lora_A(x))
+        return base_out + lora_delta
 
-class BlockQuantizer:
-    def __init__(self, num_bits=2, method="uniform", block_size=64, device="cpu", *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.num_bits = num_bits
-        self.device = device
-        self.method = method
-        self.block_size = block_size
-        self.method = method
-        if self.method == "normal":
-            self.norm_lookup_table = self.create_normal_map(num_bits=self.num_bits)
-            self.norm_lookup_table = self.norm_lookup_table.to(device)
-        elif self.method == "uniform":
-            self.norm_lookup_table = self.create_uniform_map(num_bits=self.num_bits)
-            self.norm_lookup_table = self.norm_lookup_table.to(device)
-        else:
-            raise NotImplementedError("Invalid quantization methods.")
-
-    @staticmethod
-    def create_uniform_map(symmetric=False, num_bits=4):
-        if symmetric:
-            # print("symmetric uniform quantization")
-            negative = torch.linspace(-1, 0, 2 ** (num_bits - 1))
-            positive = torch.linspace(0, 1, 2 ** (num_bits - 1))
-            table = torch.cat([negative, positive[1:]])
-        else:
-            # print("asymmetric uniform quantization")
-            table = torch.linspace(-1, 1, 2**num_bits)
-        return table
-    
-    @staticmethod
-    def create_normal_map(offset=0.9677083, symmetric=False, num_bits=2):
-        try:
-            from scipy.stats import norm
-        except ImportError:
-            raise ImportError("The required package 'scipy' is not installed. Please install it to continue.")
-
-        variations = 2**num_bits
-        if symmetric:
-            v = norm.ppf(torch.linspace(1 - offset, offset, variations + 1)).tolist()
-            values = []
-            for index in range(len(v) - 1):
-                values.append(0.5 * v[index] + 0.5 * v[index + 1])
-            v = values
-        else:
-            # one more positive value, this is an asymmetric type
-            v1 = norm.ppf(torch.linspace(offset, 0.5, variations // 2 + 1)[:-1]).tolist()
-            v2 = [0]
-            v3 = (-norm.ppf(torch.linspace(offset, 0.5, variations // 2)[:-1])).tolist()
-            v = v1 + v2 + v3
-
-        values = torch.Tensor(v)
-        values = values.sort().values
-        values /= values.max()
-        return values
-
-    @staticmethod
-    def safe_subtract_argmin(a: torch.Tensor, b: torch.Tensor, block_size: int = 4096) -> torch.Tensor:
-        """
-        Perform memory-efficient version of the opearation argmin(abs(A - B)), chunking both A and B if needed, and
-        storing the result on the CPU to minimize GPU memory usage. Note: if safe_broadcast_subtract() takes too long
-        to compute, you can increase the block size to allow for more usage of GPU; if safe_broadcast_subtract() fails
-        with CUDA out of memory, you can decrease the block size.
-
-        Parameters
-        ----------
-        a : torch.Tensor (on CUDA)
-            Left-hand tensor of subtraction. Must be at least 1D.
-        b : torch.Tensor (on CUDA)
-            Right-hand tensor. Must be broadcastable to A.
-        block_size : int
-            Max block size along the largest dimension. Default: 4096.
-        """
-        # Ensure A is always bigger than b
-        if a.numel() < b.numel():
-            return BlockQuantizer.safe_subtract_argmin(-b, -a, block_size)
-
-        # dimension with max number of elements in A (in reverse order)
-        # Number of elements in dimension max_dim_A
-        max_dim_A, max_num_A = utils.max_dim(a)
-
-        # dimension with max number of elements in B (in reverse order)
-        # Number of elements in dimension max_dim_B
-        max_dim_B, max_num_B = utils.max_dim(a)
-
-        # List that stores the argmin blocks
-        result_list = []
-
-        for start in range(0, max_num_A, block_size):
-            if a.numel() == 1:
-                a_chunk = a.item()
-            elif a.numel() == 0:
-                break
-            else:
-                a_chunk = utils.index_dim(a, max_dim_A, start, block_size)
-
-            if b.numel() == 1:
-                b_chunk = b.item()
-            elif b.numel() == 0:
-                break
-            elif max_dim_B != max_dim_A:
-                b_chunk = b
-            elif max_dim_B == max_dim_A and (len(b.shape) < len(a.shape) or b.shape[max_dim_A] == 1):
-                b_chunk = b
-            else:
-                b_chunk = utils.index_dim(b, max_dim_B, start, block_size)
-
-            # Subtract, compute abs(), compute argmin(), and move to CPU
-            temp = torch.argmin(torch.abs(a_chunk - b_chunk), dim=-1, keepdim=True).to("cpu")
-            result_list.append(temp)
-
-        if len(result_list) == 0:
-            return torch.zeros(0)
-
-        return torch.squeeze(torch.cat(result_list, dim=max_dim_A))
-
-
-
-    def quantize_block(self, weight, num_std=2.5):
-        # start_time = time.time()
-        if len(weight.shape) != 2:
-            raise ValueError(f"Only support 2D matrix, but your input has {len(weight.shape)} dimensions.")
-        if weight.shape[0] * weight.shape[1] % self.block_size != 0:
-            raise ValueError(
-                f"Weight with shape ({weight.shape[0]} x {weight.shape[1]}) "
-                f"is not dividable by block size {self.block_size}."
-            )
-
-        M, N = weight.shape
-        device = weight.device
-
-        # Quantization
-        weight = weight.flatten()  # (M*N, )
-        weight_block = weight.reshape(-1, self.block_size)  # (L, B), L = M * N / B
-        if self.method == "normal":
-            weight_max = weight_block.abs().max(dim=-1)[0]  # (L, 1)
-        elif self.method == "uniform":
-            weight_max = weight_block.mean(dim=-1) + num_std * weight_block.std(dim=-1)
-        else:
-            raise NotImplementedError("Method not supported yet.")
-        weight_max = weight_max.unsqueeze(-1)
-        weight_divabs = weight_block / weight_max  # (L, B)
-        del weight_block
-        weight_max = weight_max.to("cpu")
-
-        weight_divabs = weight_divabs.unsqueeze(-1)  # (L, B, 1)
-        L_reshaped = self.norm_lookup_table.reshape(1, -1)  # (1, 2**K)
-        # print(f"Tensor shapes: (L = {L_reshaped.shape}, weight = {weight_divabs.shape})")
-        # print("performing safe broadcasting ... ")
-        qweight = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128).to(self.device)
-        # print(qweight.shape)
-        # print("Done\n")
-        del weight_divabs
-        del L_reshaped
-
-        # Convert bits
-        if self.num_bits < 8:
-            # Pack multiple k-bit into uint8
-            bits_per_byte = 8 // self.num_bits
-            qweight = qweight.reshape(-1, bits_per_byte)
-            qweight_pack = torch.zeros((M * N // bits_per_byte, 1), dtype=torch.uint8, device=device)
-            
-            for i in range(bits_per_byte):
-                qweight[:, i] = qweight[:, i] << i * self.num_bits
-                qweight_pack[:, 0] |= qweight[:, i]
-        elif self.num_bits == 8:
-            # For 8-bit, direct conversion
-            qweight_pack = qweight.byte().reshape(-1, 1)
-        else:
-            # For larger than 8 bits, use appropriate dtype
-            if self.num_bits == 16:
-                qweight_pack = qweight.short()
-            elif self.num_bits == 32:
-                qweight_pack = qweight.int()
-            else:
-                qweight_pack = qweight
-
-        # end_time = time.time()
-        # print(f"Time used = {(end_time - start_time) / 60} minutes")
-        return qweight_pack, weight_max.to(self.device), (M, N)  # weight.shape
-
-
-
-    def dequantize_block(self, qweight, weight_max, weight_shape):
-        # unpack weight
-        device = qweight.device
-        if self.num_bits < 8:
-            bits_per_byte = 8 // self.num_bits
-            weight = torch.zeros((qweight.shape[0], bits_per_byte), dtype=torch.float32, device=device)
-            for i in range(bits_per_byte):
-                lookup_table_idx = qweight.to(torch.long) % 2**self.num_bits
-                weight[:, i] = self.norm_lookup_table[lookup_table_idx].squeeze()
-                qweight = qweight >> self.num_bits
-        else:
-            lookup_table_idx = qweight.squeeze().long()
-            weight = self.norm_lookup_table[lookup_table_idx].reshape(-1, 1)
-
-        weight_block = weight.reshape(-1, self.block_size)
-        weight = weight_block * weight_max
-        weight = weight.reshape(weight_shape)
-
-        return weight
-
+# --- Model Conversion Function ---
 def convert_linear_layer(
     model: nn.Module, 
     quantization_bits: int = 4,
     rank: int = 16,
-    num_iters: int = 5,
+    num_iters: int = 1, 
     quantization_method: str = "uniform",
-    target_modules: List[str] = ['all-linear'],
-    excluded_modules: List[str] = ['classifier'],
-    true_quantization: bool = False  # New parameter to enable true quantization
+    target_modules: List[str] = ['all-linear'], 
+    excluded_modules: List[str] = ['classifier', 'lm_head'], 
+    true_quantization: bool = False 
 ) -> nn.Module:
-    """
-    Convert a torch.nn.Linear layer in to a custom LoraLinearLayer including quantizing and computing the low-rank decomposition  
-    """
-    all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
+    all_linear_targeted = (len(target_modules) == 1 and target_modules[0].lower() == 'all-linear')
+    
     for name, module in model.named_children():
-        
-        if any(blocked in name for blocked in excluded_modules):
+        is_excluded = any(excluded_name.lower() in name.lower() for excluded_name in excluded_modules)
+        if is_excluded:
             continue
         
-        if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
-            print(f"Converting {name} layer with {'true' if true_quantization else 'simulated'} quantization")
+        is_target_module_type = isinstance(module, nn.Linear)
+        
+        should_convert = False
+        if is_target_module_type:
+            if all_linear_targeted:
+                should_convert = True
+            else:
+                if any(target_name.lower() in name.lower() for target_name in target_modules):
+                    should_convert = True
+        
+        if should_convert:
+            print(f"Converting module: {name} ({type(module).__name__}) to LoftQ {'TrueQuantizedLinear' if true_quantization else 'LoraLinearLayer'}")
+            original_linear_layer = module 
+            
             if true_quantization:
                 loftq_layer = TrueQuantizedLinear(
-                    module,
+                    base_layer=original_linear_layer, # Corrected: pass original_linear_layer as base_layer
                     quantization_bits=quantization_bits,
                     reduced_rank=rank,
                     num_iters=num_iters,
                     quantization_method=quantization_method
                 )
-                
-                loftq_layer.quantize(module.weight.data.clone())
-            else:
+                loftq_layer.quantize(original_linear_layer.weight.data)
+            else: 
                 loftq_layer = LoraLinearLayer(
-                    module,
+                    original_base_layer=original_linear_layer, 
                     quantization_bits=quantization_bits,
                     reduced_rank=rank,
                     num_iters=num_iters,
                     quantization_method=quantization_method
                 )
+                loftq_layer.quantize(original_linear_layer.weight.data)
             
-                loftq_layer.quantize()
-            
-            setattr(
-                model,
-                name,
-                loftq_layer    
-            )
-        else:
+            setattr(model, name, loftq_layer)
+
+        elif len(list(module.children())) > 0: 
             convert_linear_layer(
-                module,
+                module, 
                 quantization_bits=quantization_bits,
                 rank=rank,
                 num_iters=num_iters,
@@ -756,7 +472,7 @@ def convert_linear_layer(
             )
     return model
 
-
+# --- User-provided requantize_linear_layer ---
 def requantize_linear_layer(
     model: nn.Module, 
     target_modules: List[str] = ['all-linear'],
@@ -769,101 +485,325 @@ def requantize_linear_layer(
     """
     all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
     to_update = []
-    for name, module in model.named_modules():
-        print(name)
-        if any(blocked in name for blocked in excluded_modules):
+    # Iterate over named_modules to get full path names for matching pre_quantized_weights keys
+    for name, module_ref in model.named_modules():
+        # We need to get the parent module and the specific child name to use setattr
+        parent_module = model
+        child_name_for_setattr = name
+        if '.' in name:
+            path_parts = name.split('.')
+            child_name_for_setattr = path_parts[-1]
+            parent_path = '.'.join(path_parts[:-1])
+            parent_module = model.get_submodule(parent_path)
+        
+        current_module_to_check = module_ref # This is the actual module instance
+
+        if any(blocked.lower() in name.lower() for blocked in excluded_modules): # Check full name for exclusion
             continue
         
-        if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
-            to_update.append((name, module))
+        is_target_type = isinstance(current_module_to_check, nn.Linear)
+        should_process = False
+        if is_target_type:
+            if all_linear:
+                should_process = True
+            elif any(targeted.lower() in name.lower() for targeted in target_modules): # Check full name for targeting
+                should_process = True
+        
+        if should_process:
+            # Pass parent_module and child_name_for_setattr for later setattr
+            to_update.append((name, current_module_to_check, parent_module, child_name_for_setattr))
             print(f"Will convert {name} layer with {'true' if true_quantization else 'simulated'} quantization")
     
-    for name, module in to_update:
-        if name not in pre_quantized_weights:
+    for name, module_to_replace, parent_for_setattr, child_attr_name in to_update:
+        if pre_quantized_weights is None or name not in pre_quantized_weights:
             print(f"Warning: No precomputed weights found for {name}, skipping")
             continue
         
         weights_info = pre_quantized_weights[name]
         
-        if true_quantization:
-            if 'qweight' in weights_info and 'weight_max' in weights_info:
-                new_layer = TrueQuantizedLinear(
-                    module,
-                    quantization_bits=weights_info.get('quantization_bits', 4),
-                    reduced_rank=weights_info.get('reduced_rank', 16),
-                    quantization_method=weights_info.get('quantization_method', 'uniform')
-                )
-                
-                print(weights_info['qweight'])
-                sys.exit()
-                new_layer.register_buffer("qweight", weights_info['qweight'])
-                new_layer.register_buffer("weight_max", weights_info['weight_max'])
-                new_layer.register_buffer("weight_shape", weights_info['weight_shape'])
-            else:
-                print(f"Warning: Incomplete quantization info for {name}, cannot create TrueQuantLinearLayer")
-                continue
-        else:
-            new_layer = LoraLinearLayer(
-                module,
-                quantization_bits=weights_info.get('quantization_bits', 4),
-                reduced_rank=weights_info.get('reduced_rank', 16),
-                quantization_method=weights_info.get('quantization_method', 'uniform')
-            )
-            
-            # Set the dequantized parameters
-            if 'dequantized_weight' in weights_info:
-                new_layer.base_layer.weight.data = weights_info['dequantized_weight']
-            
-        if 'lora_A' in weights_info and 'lora_B' in weights_info:
-            new_layer.lora_A.weight.data = weights_info['lora_A']
-            new_layer.lora_B.weight.data = weights_info['lora_B']
-            
-        if new_layer.has_bias and 'bias' in weights_info:
-            new_layer.bias.data = weights_info['bias']
-                
-        # Replace the module
-        parent_name = '.'.join(name.split('.')[:-1])
-        child_name = name.split('.')[-1]
-        
-        if parent_name:
-            parent = model.get_submodule(parent_name)
-            setattr(parent, child_name, new_layer)
-        else:
-            setattr(model, child_name, new_layer)
+        # Determine parameters for new layer instantiation
+        q_bits = weights_info.get('quantization_bits', 4) # Default if not in weights_info
+        r_rank = weights_info.get('reduced_rank', 16)   # Default if not in weights_info
+        q_method = weights_info.get('quantization_method', 'uniform') # Default
 
+        new_layer = None
+        if true_quantization:
+            if 'qweight' in weights_info and 'weight_scales' in weights_info: # Changed from weight_max
+                new_layer = TrueQuantizedLinear(
+                    base_layer=module_to_replace, # Pass the original nn.Linear
+                    quantization_bits=q_bits,
+                    reduced_rank=r_rank,
+                    quantization_method=q_method
+                    # num_iters is for the _loftq process, not strictly needed for loading precomputed
+                )
+                # Manually set buffers and parameters
+                new_layer.register_buffer("qweight", weights_info['qweight'].to(compute_device))
+                new_layer.register_buffer("weight_scales", weights_info['weight_scales'].to(compute_device)) # Changed from weight_max
+                # Handle weight_shape_buf (consistent with TrueQuantizedLinear)
+                if 'weight_shape_buf' in weights_info:
+                    new_layer.register_buffer("weight_shape_buf", weights_info['weight_shape_buf'].to(compute_device))
+                elif 'weight_shape' in weights_info: # Fallback for user's 'weight_shape'
+                     new_layer.register_buffer("weight_shape_buf", torch.tensor(weights_info['weight_shape'], device=compute_device))
+                else: # Fallback to original module's weight shape
+                    new_layer.register_buffer("weight_shape_buf", torch.tensor(module_to_replace.weight.shape, device=compute_device))
+
+            else:
+                print(f"Warning: Incomplete quantization info for {name} (missing qweight or weight_scales), cannot create TrueQuantizedLinear")
+                continue
+        else: # LoraLinearLayer (simulated)
+            new_layer = LoraLinearLayer(
+                original_base_layer=module_to_replace, # Pass the original nn.Linear
+                quantization_bits=q_bits,
+                reduced_rank=r_rank,
+                quantization_method=q_method
+            )
+            if 'dequantized_base_weight' in weights_info: # Key for dequantized weight
+                new_layer.internal_dequantized_base_layer.weight.data = weights_info['dequantized_base_weight'].to(
+                    new_layer.internal_dequantized_base_layer.weight.dtype).to(compute_device)
+            else:
+                print(f"Warning: Missing 'dequantized_base_weight' for LoraLinearLayer {name}. Base layer weights will be uninitialized.")
+
+        if new_layer:
+            # Load LoRA A and B weights
+            if 'lora_A_weight' in weights_info: # Changed from 'lora_A'
+                new_layer.lora_A.weight.data = weights_info['lora_A_weight'].to(new_layer.lora_A.weight.dtype).to(compute_device)
+            if 'lora_B_weight' in weights_info: # Changed from 'lora_B'
+                new_layer.lora_B.weight.data = weights_info['lora_B_weight'].to(new_layer.lora_B.weight.dtype).to(compute_device)
+            
+            # Load bias
+            if new_layer.has_bias:
+                if 'bias' in weights_info:
+                    new_layer.bias.data = weights_info['bias'].to(new_layer.bias.dtype).to(compute_device)
+                elif module_to_replace.bias is not None: # Fallback to original bias if not saved
+                    new_layer.bias.data = module_to_replace.bias.data.clone().to(compute_device)
+            
+            # Replace the module in the model structure
+            setattr(parent_for_setattr, child_attr_name, new_layer)
+            
     return model
 
-def analyze_model_memory(model):
+# --- User-provided analyze_model_memory ---
+def analyze_model_memory(model: nn.Module):
     total_params = 0
-    quant_params = 0
-    quant_bytes = 0
+    quant_params = 0 # This seems to be used for original size of weights that got quantized
+    quant_bytes = 0  # Actual bytes for qweight + scales in TrueQuantized
     lora_params = 0
-    other_params = 0
+    other_params = 0 # For non-LoftQ nn.Linear and other layers
     
+    # Iterate with model.named_modules() to correctly identify layer types
     for name, module in model.named_modules():
         if isinstance(module, TrueQuantizedLinear):
-            # Quantized layer
-            if hasattr(module, 'qweight'):
-                quant_params += module.in_features * module.out_features
+            # For TrueQuantizedLinear, count original params for 'quant_params'
+            # and actual stored bytes for 'quant_bytes'
+            # weight_shape_buf stores the original 2D shape [out_features, in_features]
+            if hasattr(module, 'weight_shape_buf'):
+                orig_out, orig_in = module.weight_shape_buf.tolist()
+                quant_params += orig_in * orig_out 
+            if module.has_bias: # Bias is stored as is
+                quant_params += module.out_features 
+                quant_bytes += module.bias.numel() * module.bias.element_size()
+
+            if hasattr(module, 'qweight') and hasattr(module, 'weight_scales'):
                 quant_bytes += module.qweight.numel() * module.qweight.element_size()
-            # LoRA adapters
-            lora_params += module.lora_A.weight.numel() + module.lora_B.weight.numel()
+                quant_bytes += module.weight_scales.numel() * module.weight_scales.element_size()
+            
+            lora_params += sum(p.numel() for p in module.lora_A.parameters())
+            lora_params += sum(p.numel() for p in module.lora_B.parameters())
+
         elif isinstance(module, LoraLinearLayer):
-            if hasattr(module, 'base_layer'):
-                param_count = module.base_layer.weight.numel()
-                total_params += param_count
-                other_params += param_count
-            # LoRA adapters
-            lora_params += module.lora_A.weight.numel() + module.lora_B.weight.numel()
+            # For LoraLinearLayer, the base layer is dequantized and stored.
+            # Its parameters contribute to 'other_params' (or a separate category if needed)
+            # The original parameters before LoftQ would be 'quant_params' conceptually.
+            if hasattr(module, 'internal_dequantized_base_layer'):
+                base = module.internal_dequantized_base_layer
+                current_layer_params = sum(p.numel() for p in base.parameters())
+                other_params += current_layer_params # Stored as dequantized
+                # Conceptually, these were the params that got "quantized"
+                quant_params += base.in_features * base.out_features 
+                if base.bias is not None:
+                    quant_params += base.out_features
+
+            lora_params += sum(p.numel() for p in module.lora_A.parameters())
+            lora_params += sum(p.numel() for p in module.lora_B.parameters())
+            
         elif isinstance(module, nn.Linear):
-            # Regular linear layer
-            if hasattr(module, 'weight'):
-                param_count = module.weight.numel()
-                total_params += param_count
-                other_params += param_count
+            # This case handles nn.Linear layers that were *not* converted to LoftQ.
+            # It should only count if it's a leaf module in this context.
+            # The model.named_modules() iterates, so we need to be careful not to double count.
+            # This simple check might miscount if Linear layers contain other modules,
+            # but for typical structures, it's okay.
+            is_parent_of_loftq_or_standard_linear = False
+            for child_name, child_module in module.named_children(): # Check if it has children
+                is_parent_of_loftq_or_standard_linear = True
+                break
+            if not is_parent_of_loftq_or_standard_linear: # If it's a leaf nn.Linear
+                 other_params += sum(p.numel() for p in module.parameters())
+        
+        # For other layer types (Conv, Embedding, Norms, etc.) not converted by LoftQ (Linear)
+        elif not isinstance(module, (TrueQuantizedLinear, LoraLinearLayer, nn.Linear)):
+            is_parent_of_loftq_or_standard_linear = False
+            # Check if this module is a container of already counted LoftQ/Linear layers
+            # This avoids double counting parameters from containers like Sequential or custom blocks
+            # if their children are LoftQ/Linear layers.
+            # A more robust way is to sum only leaf modules or subtract children's params.
+            # For now, let's assume this simple check is for non-container leaf modules.
+            if not list(module.children()): # If it's a leaf module (no children)
+                other_params += sum(p.numel() for p in module.parameters())
+
+
+    # User's original print statements and calculation logic:
+    print(f"Quantized parameters (original size of weights that underwent LoftQ): {quant_params:,}")
+    print(f"  - Actual storage for TrueQuantized (qweight, scales, bias): {quant_bytes/(1024**2):.2f}MB)")
+    print(f"LoRA parameters: {lora_params:,} ({lora_params*2/(1024**2):.2f}MB assuming FP16)")
+    print(f"Other parameters (non-LoftQ Linear, other layer types, dequantized bases for LoraLinearLayer): {other_params:,} ({other_params*2/(1024**2):.2f}MB assuming FP16)")
     
-    print(f"Quantized parameters: {quant_params:,} ({quant_bytes/(1024**2):.2f}MB)")
-    print(f"LoRA parameters: {lora_params:,} ({lora_params*2/(1024**2):.2f}MB)")
-    print(f"Other parameters: {other_params:,} ({other_params*2/(1024**2):.2f}MB)")
-    print(f"Total: {other_params + quant_params + lora_params:,} ({((other_params*2) + quant_bytes + (lora_params*2))/(1024**2):.2f}MB)")
+    # User's total calculation:
+    # Total memory = (other_params_mem) + (quant_bytes_for_TrueQuant) + (lora_params_mem)
+    # For LoraLinearLayer, its base is part of other_params.
+    total_mem_mb = (other_params * 2 + quant_bytes + lora_params * 2) / (1024**2)
     
+    # Total conceptual parameters (sum of original sizes)
+    total_conceptual_params = quant_params + lora_params + other_params # This might double count if quant_params includes LoraLinearLayer base
+
+    print(f"Total Conceptual Parameters (approx): {total_conceptual_params:,}")
+    print(f"Estimated Total Model Memory from components: {total_mem_mb:.2f}MB")
+    
+    # Return dictionary (optional, for programmatic use)
+    return {
+        "quant_params_orig_size": quant_params,
+        "quant_bytes_actual_truequant": quant_bytes,
+        "lora_params": lora_params,
+        "other_params_fp16_equiv": other_params,
+        "total_conceptual_params": total_conceptual_params,
+        "estimated_total_memory_mb": total_mem_mb
+    }
+
+
+if __name__ == '__main__':
+    print(f"LoftQ module loaded. Running on: {compute_device}")
+
+    print("\nTesting BlockQuantizer...")
+    bq = BlockQuantizer(num_bits=4, method='uniform', device=compute_device)
+    test_tensor = torch.randn(10, 128, device=compute_device) * 5
+    q_w, scales, orig_s = bq.quantize_block(test_tensor)
+    deq_w = bq.dequantize_block(q_w, scales, orig_s)
+    print(f"BlockQuantizer Test: Original shape {orig_s}, Quantized pack shape {q_w.shape}, Scales shape {scales.shape}, Dequantized shape {deq_w.shape}")
+    mse_loss = F.mse_loss(test_tensor, deq_w).item()
+    if mse_loss < 0.1: # Adjusted tolerance based on typical quantization error
+        print(f"BlockQuantizer test: PASSED (approx). MSE: {mse_loss:.4f}")
+    else:
+        print(f"BlockQuantizer test: FAILED (approx). MSE: {mse_loss:.4f}")
+
+    print("\nTesting TrueQuantizedLinear...")
+    original_linear = nn.Linear(128, 256, bias=True).to(compute_device)
+    true_q_linear = TrueQuantizedLinear(original_linear, reduced_rank=16, quantization_bits=4)
+    true_q_linear.quantize(original_linear.weight.data)
+    true_q_linear.to(compute_device) 
+    
+    dummy_input_linear = torch.randn(3, 128, device=compute_device)
+    try:
+        output_true_q = true_q_linear(dummy_input_linear)
+        print(f"TrueQuantizedLinear forward pass successful. Output shape: {output_true_q.shape}")
+    except Exception as e:
+        print(f"Error in TrueQuantizedLinear forward: {e}")
+        import traceback
+        traceback.print_exc()
+
+    print("\nTesting LoraLinearLayer...")
+    original_linear_2 = nn.Linear(128, 256, bias=False).to(compute_device)
+    lora_linear = LoraLinearLayer(original_linear_2, reduced_rank=8, quantization_bits=2, num_iters=1, quantization_method='normal')
+    lora_linear.quantize(original_linear_2.weight.data)
+    lora_linear.to(compute_device)
+
+    try:
+        output_lora_linear = lora_linear(dummy_input_linear)
+        print(f"LoraLinearLayer forward pass successful. Output shape: {output_lora_linear.shape}")
+    except Exception as e:
+        print(f"Error in LoraLinearLayer forward: {e}")
+        import traceback
+        traceback.print_exc()
+
+    print("\nTesting convert_linear_layer...")
+    class TestModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layer1 = nn.Linear(10, 20)
+            self.activation = nn.ReLU()
+            self.layer2_custom_name = nn.Linear(20, 5) 
+            self.classifier = nn.Linear(5, 2) 
+
+        def forward(self, x):
+            x = self.activation(self.layer1(x))
+            x = self.activation(self.layer2_custom_name(x))
+            x = self.classifier(x)
+            return x
+    
+    test_model_orig = TestModel().to(compute_device)
+    import copy
+    test_model_to_convert = copy.deepcopy(test_model_orig)
+
+    converted_model = convert_linear_layer(
+        test_model_to_convert,
+        rank=4,
+        true_quantization=True,
+        target_modules=['layer1', 'layer2_custom_name'], 
+        excluded_modules=['classifier']
+    )
+    print("Converted Model Structure:")
+    print(converted_model)
+    dummy_input_model = torch.randn(2, 10, device=compute_device)
+    try:
+        output_converted_model = converted_model(dummy_input_model)
+        print(f"Converted model forward pass successful. Output shape: {output_converted_model.shape}")
+    except Exception as e:
+        print(f"Error in converted_model forward: {e}")
+        import traceback
+        traceback.print_exc()
+
+    print("\nTesting analyze_model_memory (with user's version)...")
+    analyze_model_memory(converted_model)
+    
+    print("\nTesting requantize_linear_layer (with user's version)...")
+    # Create dummy pre_quantized_weights for testing requantize
+    # This would normally come from a saved model
+    dummy_pre_quant_weights = {}
+    for name, module in converted_model.named_modules():
+        if isinstance(module, TrueQuantizedLinear):
+            dummy_pre_quant_weights[name] = {
+                'qweight': module.qweight.clone(),
+                'weight_scales': module.weight_scales.clone(),
+                'weight_shape_buf': module.weight_shape_buf.clone(),
+                'lora_A_weight': module.lora_A.weight.data.clone(),
+                'lora_B_weight': module.lora_B.weight.data.clone(),
+                'quantization_bits': module.quantization_bits,
+                'reduced_rank': module.reduced_rank,
+                'quantization_method': module.quantization_method,
+            }
+            if module.has_bias:
+                dummy_pre_quant_weights[name]['bias'] = module.bias.data.clone()
+
+    # Create a fresh model to requantize
+    fresh_model_to_requant = TestModel().to(compute_device)
+    requantized_model = requantize_linear_layer(
+        fresh_model_to_requant,
+        pre_quantized_weights=dummy_pre_quant_weights,
+        true_quantization=True,
+        target_modules=['layer1', 'layer2_custom_name'],
+        excluded_modules=['classifier']
+    )
+    print("Requantized Model Structure:")
+    print(requantized_model)
+    try:
+        output_requant_model = requantized_model(dummy_input_model)
+        print(f"Requantized model forward pass successful. Output shape: {output_requant_model.shape}")
+        # Check if weights are loaded (e.g. by comparing output or a specific weight)
+        if torch.allclose(output_converted_model, output_requant_model, atol=1e-5):
+             print("Requantized model output matches converted model output: PASSED")
+        else:
+             print("Requantized model output MISMATCH. This might be due to fresh model re-initialization or other factors.")
+
+    except Exception as e:
+        print(f"Error in requantized_model forward: {e}")
+        import traceback
+        traceback.print_exc()
+
