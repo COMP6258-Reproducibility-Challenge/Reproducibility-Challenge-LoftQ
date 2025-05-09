@@ -238,7 +238,7 @@ def convert_true_quant_conv_layer(module: nn.Module, model_args):
 
             # Create the TrueQuantizedConv2d layer
             # Ensure TrueQuantizedConv2d is imported or defined
-            from custom_loftq.loftq_cnn import TrueQuantizedConv2d # Adjust import path as needed
+            from loftq_cnn import TrueQuantizedConv2d # Adjust import path as needed
 
             new_layer = TrueQuantizedConv2d(
                 in_channels=in_channels,
