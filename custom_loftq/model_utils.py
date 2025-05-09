@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from typing import List, Optional, Tuple, Type, Union
+from torch import nn
 
 import warnings
 from transformers import (

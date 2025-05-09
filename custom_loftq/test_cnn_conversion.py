@@ -8,7 +8,8 @@ import torch.nn as nn
 
 # If running this script directly and the files are in the same directory (for testing):
 from loftq_cnn import TrueQuantizedConv2d, compute_device # Make sure compute_device is imported
-from model_utils_extended import convert_true_quant_conv_layer
+from model_utils import convert_true_quant_conv_layer
+import custom_loftq
 
 
 # Define a simple CNN model for testing
