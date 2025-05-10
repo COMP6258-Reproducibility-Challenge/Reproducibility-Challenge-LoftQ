@@ -8,6 +8,7 @@ import model_utils
 import classification_utils
 import qa_utils
 import summarisation_utils
+import clm_utils
 from peft import TaskType
 
 from transformers import PreTrainedModel
@@ -33,7 +34,7 @@ if __name__ == "__main__":
         model_class, task_type = model_utils.get_base_class(model_name)
         model, tokenizer, target_modules, excluded_modules = model_utils.load_loftq_model(model_class, model_args, base_args.save_dir, num_labels=num_labels)
 
-    model_utils.check_model_fits_task(task_type, data_args.data_name)
+    model_utils.check_model_fits_task(task_type, data_args.data_name.split("/")[-1])
     
     quant_total = model_utils.count_total_parameters(model)
     quant_trainable = model_utils.count_trainable_parameters(model)
@@ -56,3 +57,5 @@ if __name__ == "__main__":
             qa_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
         elif task_type == TaskType.SEQ_2_SEQ_LM:
             summarisation_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
+        elif task_type == TaskType.CAUSAL_LM:
+            clm_utils.train(model, tokenizer, model_args, training_args, raw_data)
