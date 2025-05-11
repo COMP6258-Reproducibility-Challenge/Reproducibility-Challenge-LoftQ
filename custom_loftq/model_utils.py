@@ -231,7 +231,7 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
     # Load the model architecture and basic parameters
     if issubclass(model_class, PreTrainedModel):
         # For HuggingFace models
-        if num_labels is not None:    
+        if num_labels is not None:
             model = model_class.from_pretrained(
                 model_dir,
                 num_labels=num_labels    
