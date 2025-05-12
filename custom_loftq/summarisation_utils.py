@@ -94,7 +94,7 @@ def prepare_model(model, tokenizer, data_args):
     model = max_positional_embeddings(model, tokenizer, data_args)
     return model
 
-def compute__summarisation_metrics(eval_preds, tokenizer, metric):
+def compute_summarisation_metrics(eval_preds, tokenizer, metric):
         preds, labels = eval_preds
         if isinstance(preds, tuple):
             preds = preds[0]
@@ -193,7 +193,7 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
                                         summary_column=summary_column, data_args=data_args, max_target_length=max_target_length, padding=padding)
     
     metric = evaluate.load("rouge")
-    compute_metrics = partial(compute__summarisation_metrics, metric, tokenizer, data_args)
+    compute_metrics = partial(compute_summarisation_metrics, metric, tokenizer, data_args)
 
     train_dataset = raw_datasets["train"]
     eval_dataset = raw_datasets["validation"]
@@ -277,7 +277,7 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
 
 class LoFTQSequence2SequenceTrainer(Seq2SeqTrainer, LoFTQTrainer):
     def save_model(self, output_dir=None, _internal_call=False):
-        LoFTQTrainer.save(self, output_dir, _internal_call)
+        LoFTQTrainer.save_model(self, output_dir, _internal_call)
     
     def _save(self, output_dir=None, state_dict=None):
-        LoFTQTrainer.save(self, output_dir, state_dict)
+        LoFTQTrainer._save(self, output_dir, state_dict)
