@@ -17,6 +17,13 @@ import utils
 
 # import time
 
+def get_gpu_mem(msg = ""):
+    print(msg, end=" ")
+    for i in range(0, torch.cuda.device_count()):
+        free_mem, total_mem = torch.cuda.mem_get_info(i)
+        use_mem = ((total_mem - free_mem) / total_mem) / (1024 * 1024 * 1024)
+        print(f"GPU {i} memory: {use_mem}", end=", ")
+
 class BaseLoftqLinear(nn.Module):
     def __init__(
         self,
@@ -118,17 +125,22 @@ class TrueQuantizedLinear(BaseLoftqLinear):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             """Forward pass with on-the-fly dequantization"""
             # Dequantize weights
+
+            get_gpu_mem("Before Dequant")
             weight = self.quantizer.dequantize_block(
                 self.qweight, 
                 self.weight_max, 
                 (self.weight_shape[0].item(), self.weight_shape[1].item())
             )
+            get_gpu_mem("After Dequant")
             
             # Compute the base output using dequantized weights
             base_output = nn.functional.linear(x, weight, self.bias)
+            get_gpu_mem("After base out")
             
             # Apply LoRA adapters
             lora_output = self.lora_B(self.lora_A(x))
+            get_gpu_mem("After lora out")
             
             return base_output + lora_output
         
