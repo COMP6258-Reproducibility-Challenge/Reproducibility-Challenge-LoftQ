@@ -31,7 +31,10 @@ def count_labels(dataset):
 
 
 def compute_classification_metrics(eval_pred, data_args):
-    metric = evaluate.load(data_args.data_name, data_args.task_name)
+    if data_args.data_name == "glue":
+        metric = evaluate.load(data_args.data_name, data_args.task_name)
+    else:
+        metric = evaluate.load('accuracy')
     predictions, labels = eval_pred
     predictions = np.argmax(predictions, axis=1)
     return metric.compute(predictions=predictions, references=labels)
@@ -75,7 +78,10 @@ def preprocess_function(examples, tokenizer, sentence1_key, sentence2_key):
 def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
     logging.warning("Preparing to train model")
 
-    sentence1_key, sentence2_key = task_to_keys[data_args.task_name]
+    if data_args.data_name == "glue":
+        sentence1_key, sentence2_key = task_to_keys[data_args.task_name]
+    else:
+        sentence1_key, sentence2_key = "premise", "hypothesis"
 
     preprocess_with_tokenizer = partial(preprocess_function, tokenizer=tokenizer, sentence1_key=sentence1_key,
                                         sentence2_key=sentence2_key)

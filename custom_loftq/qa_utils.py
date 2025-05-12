@@ -180,7 +180,7 @@ def postprocess_qa_predictions(
     n_best_size: int = 20,
     max_answer_length: int = 30,
     null_score_diff_threshold: float = 0.0,
-    output_dir: Optional[str] = None,
+    output_dir: Optional[str] = 'trained_models',
     prefix: Optional[str] = None,
     log_level: Optional[int] = logging.WARNING,
 ):
