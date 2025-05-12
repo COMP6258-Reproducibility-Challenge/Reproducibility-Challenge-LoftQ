@@ -1,15 +1,15 @@
 #!/bin/bash -l
 
-#SBATCH -p lyceum
-#SBATCH --gres=gpu:4
+#SBATCH -p swarm_h100
+#SBATCH --gres=gpu:2
 #SBATCH --nodes=1
 #SBATCH --time=21:00:00
 #SBATCH --output=results/llama_q16.txt
 #SBATCH --error=results/llama_q16.txt
 
 
-module load conda/py3-latest
-conda activate comp6258-env
+# module load conda/py3-latest
+conda activate loftq_env
 
 
 python run_loftq.py \
