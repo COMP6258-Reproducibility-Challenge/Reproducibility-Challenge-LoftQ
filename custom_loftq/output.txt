@@ -1,0 +1,340 @@
+The following values were not passed to `accelerate launch` and had defaults used instead:
+	`--num_machines` was set to a value of `1`
+	`--dynamo_backend` was set to a value of `'no'`
+To avoid this warning pass in values for each of the problematic parameters or run `accelerate config`.
+[2025-05-12 20:11:11,391] [INFO] [real_accelerator.py:239:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+WARNING:root:Loading raw dataset: mikasenghaas/wikitext-2 - default
+Using the latest cached version of the dataset since mikasenghaas/wikitext-2 couldn't be found on the Hugging Face Hub
+WARNING:datasets.load:Using the latest cached version of the dataset since mikasenghaas/wikitext-2 couldn't be found on the Hugging Face Hub
+Found the latest cached dataset configuration 'default' at /scratch/yw16u21/huggingface/datasets/mikasenghaas___wikitext-2/default/0.0.0/f7836bd4080d244e6507fcf70604c740d73a230a (last modified on Mon May 12 18:44:18 2025).
+WARNING:datasets.packaged_modules.cache.cache:Found the latest cached dataset configuration 'default' at /scratch/yw16u21/huggingface/datasets/mikasenghaas___wikitext-2/default/0.0.0/f7836bd4080d244e6507fcf70604c740d73a230a (last modified on Mon May 12 18:44:18 2025).
+WARNING:root:Loading quantized model
+WARNING:root:Model name: meta-llama/Llama-2-7b-hf, Method: uniform, Rank: 32, Bits: 2, True quantize: True
+WARNING:root:Preparing to train model
+WARNING:evaluate.loading:Using the latest cached version of the module from /scratch/yw16u21/huggingface/modules/evaluate_modules/metrics/evaluate-metric--accuracy/f887c0aab52c2d38e1f8a215681126379eca617f96c447638f751434e8e65b14 (last modified on Fri May  9 16:35:46 2025) since it couldn't be found locally at evaluate-metric--accuracy, or remotely on the Hugging Face Hub.
+LoftQ - Total parameters: 342,364,160
+LoftQ - Trainable parameters: 79,953,920 (23.35%)
+Model is on cuda: True
+Before dequantize torch.cuda.memory_allocated: 3.176628589630127 GB
+After dequantize torch.cuda.memory_allocated: 3.239128589630127 GB
+After base out torch.cuda.memory_allocated: 3.243034839630127 GB
+After lora out torch.cuda.memory_allocated: 3.246971607208252 GB
+Before dequantize torch.cuda.memory_allocated: 3.180565357208252 GB
+After dequantize torch.cuda.memory_allocated: 3.243065357208252 GB
+After base out torch.cuda.memory_allocated: 3.246971607208252 GB
+After lora out torch.cuda.memory_allocated: 3.250908374786377 GB
+Before dequantize torch.cuda.memory_allocated: 3.184502124786377 GB
+After dequantize torch.cuda.memory_allocated: 3.247002124786377 GB
+After base out torch.cuda.memory_allocated: 3.250908374786377 GB
+After lora out torch.cuda.memory_allocated: 3.254845142364502 GB
+Before dequantize torch.cuda.memory_allocated: 3.204094409942627 GB
+After dequantize torch.cuda.memory_allocated: 3.266594409942627 GB
+After base out torch.cuda.memory_allocated: 3.270500659942627 GB
+After lora out torch.cuda.memory_allocated: 3.274437427520752 GB
+Before dequantize torch.cuda.memory_allocated: 3.2705321311950684 GB
+After dequantize torch.cuda.memory_allocated: 3.4385008811950684 GB
+After base out torch.cuda.memory_allocated: 3.4489989280700684 GB
+After lora out torch.cuda.memory_allocated: 3.4595274925231934 GB
+Before dequantize torch.cuda.memory_allocated: 3.4595274925231934 GB
+After dequantize torch.cuda.memory_allocated: 3.6274962425231934 GB
+After base out torch.cuda.memory_allocated: 3.6379942893981934 GB
+After lora out torch.cuda.memory_allocated: 3.6485228538513184 GB
+Before dequantize torch.cuda.memory_allocated: 3.6485228538513184 GB
+After dequantize torch.cuda.memory_allocated: 3.8164916038513184 GB
+After base out torch.cuda.memory_allocated: 3.8203978538513184 GB
+After lora out torch.cuda.memory_allocated: 3.8243346214294434 GB
+Before dequantize torch.cuda.memory_allocated: 3.8243355751037598 GB
+After dequantize torch.cuda.memory_allocated: 3.8868355751037598 GB
+After base out torch.cuda.memory_allocated: 3.8907418251037598 GB
+After lora out torch.cuda.memory_allocated: 3.8946785926818848 GB
+Before dequantize torch.cuda.memory_allocated: 3.8907723426818848 GB
+After dequantize torch.cuda.memory_allocated: 3.9532723426818848 GB
+After base out torch.cuda.memory_allocated: 3.9571785926818848 GB
+After lora out torch.cuda.memory_allocated: 3.9611153602600098 GB
+Before dequantize torch.cuda.memory_allocated: 3.9572091102600098 GB
+After dequantize torch.cuda.memory_allocated: 4.01970911026001 GB
+After base out torch.cuda.memory_allocated: 4.02361536026001 GB
+After lora out torch.cuda.memory_allocated: 4.027552127838135 GB
+Before dequantize torch.cuda.memory_allocated: 4.03930139541626 GB
+After dequantize torch.cuda.memory_allocated: 4.10180139541626 GB
+After base out torch.cuda.memory_allocated: 4.10570764541626 GB
+After lora out torch.cuda.memory_allocated: 4.109644412994385 GB
+Before dequantize torch.cuda.memory_allocated: 4.105739116668701 GB
+After dequantize torch.cuda.memory_allocated: 4.273707866668701 GB
+After base out torch.cuda.memory_allocated: 4.284205913543701 GB
+After lora out torch.cuda.memory_allocated: 4.294734477996826 GB
+Before dequantize torch.cuda.memory_allocated: 4.294734477996826 GB
+After dequantize torch.cuda.memory_allocated: 4.462703227996826 GB
+After base out torch.cuda.memory_allocated: 4.473201274871826 GB
+After lora out torch.cuda.memory_allocated: 4.483729839324951 GB
+Before dequantize torch.cuda.memory_allocated: 4.483729839324951 GB
+After dequantize torch.cuda.memory_allocated: 4.651698589324951 GB
+After base out torch.cuda.memory_allocated: 4.655604839324951 GB
+After lora out torch.cuda.memory_allocated: 4.659541606903076 GB
+Before dequantize torch.cuda.memory_allocated: 4.659542560577393 GB
+After dequantize torch.cuda.memory_allocated: 4.722042560577393 GB
+After base out torch.cuda.memory_allocated: 4.725948810577393 GB
+After lora out torch.cuda.memory_allocated: 4.729885578155518 GB
+Before dequantize torch.cuda.memory_allocated: 4.725979328155518 GB
+After dequantize torch.cuda.memory_allocated: 4.788479328155518 GB
+After base out torch.cuda.memory_allocated: 4.792385578155518 GB
+After lora out torch.cuda.memory_allocated: 4.796322345733643 GB
+Before dequantize torch.cuda.memory_allocated: 4.792416095733643 GB
+After dequantize torch.cuda.memory_allocated: 4.854916095733643 GB
+After base out torch.cuda.memory_allocated: 4.858822345733643 GB
+After lora out torch.cuda.memory_allocated: 4.862759113311768 GB
+Before dequantize torch.cuda.memory_allocated: 4.874508380889893 GB
+After dequantize torch.cuda.memory_allocated: 4.937008380889893 GB
+After base out torch.cuda.memory_allocated: 4.940914630889893 GB
+After lora out torch.cuda.memory_allocated: 4.944851398468018 GB
+Before dequantize torch.cuda.memory_allocated: 4.940946102142334 GB
+After dequantize torch.cuda.memory_allocated: 5.108914852142334 GB
+After base out torch.cuda.memory_allocated: 5.119412899017334 GB
+After lora out torch.cuda.memory_allocated: 5.129941463470459 GB
+Before dequantize torch.cuda.memory_allocated: 5.129941463470459 GB
+After dequantize torch.cuda.memory_allocated: 5.297910213470459 GB
+After base out torch.cuda.memory_allocated: 5.308408260345459 GB
+After lora out torch.cuda.memory_allocated: 5.318936824798584 GB
+Before dequantize torch.cuda.memory_allocated: 5.318936824798584 GB
+After dequantize torch.cuda.memory_allocated: 5.486905574798584 GB
+After base out torch.cuda.memory_allocated: 5.490811824798584 GB
+After lora out torch.cuda.memory_allocated: 5.494748592376709 GB
+Before dequantize torch.cuda.memory_allocated: 5.494749546051025 GB
+After dequantize torch.cuda.memory_allocated: 5.557249546051025 GB
+After base out torch.cuda.memory_allocated: 5.561155796051025 GB
+After lora out torch.cuda.memory_allocated: 5.56509256362915 GB
+Before dequantize torch.cuda.memory_allocated: 5.56118631362915 GB
+After dequantize torch.cuda.memory_allocated: 5.62368631362915 GB
+After base out torch.cuda.memory_allocated: 5.62759256362915 GB
+After lora out torch.cuda.memory_allocated: 5.631529331207275 GB
+Before dequantize torch.cuda.memory_allocated: 5.627623081207275 GB
+After dequantize torch.cuda.memory_allocated: 5.690123081207275 GB
+After base out torch.cuda.memory_allocated: 5.694029331207275 GB
+After lora out torch.cuda.memory_allocated: 5.6979660987854 GB
+Before dequantize torch.cuda.memory_allocated: 5.709715366363525 GB
+After dequantize torch.cuda.memory_allocated: 5.772215366363525 GB
+After base out torch.cuda.memory_allocated: 5.776121616363525 GB
+After lora out torch.cuda.memory_allocated: 5.78005838394165 GB
+Before dequantize torch.cuda.memory_allocated: 5.776153087615967 GB
+After dequantize torch.cuda.memory_allocated: 5.944121837615967 GB
+After base out torch.cuda.memory_allocated: 5.954619884490967 GB
+After lora out torch.cuda.memory_allocated: 5.965148448944092 GB
+Before dequantize torch.cuda.memory_allocated: 5.965148448944092 GB
+After dequantize torch.cuda.memory_allocated: 6.133117198944092 GB
+After base out torch.cuda.memory_allocated: 6.143615245819092 GB
+After lora out torch.cuda.memory_allocated: 6.154143810272217 GB
+Before dequantize torch.cuda.memory_allocated: 6.154143810272217 GB
+After dequantize torch.cuda.memory_allocated: 6.322112560272217 GB
+After base out torch.cuda.memory_allocated: 6.326018810272217 GB
+After lora out torch.cuda.memory_allocated: 6.329955577850342 GB
+Before dequantize torch.cuda.memory_allocated: 6.329956531524658 GB
+After dequantize torch.cuda.memory_allocated: 6.392456531524658 GB
+After base out torch.cuda.memory_allocated: 6.396362781524658 GB
+After lora out torch.cuda.memory_allocated: 6.400299549102783 GB
+Before dequantize torch.cuda.memory_allocated: 6.396393299102783 GB
+After dequantize torch.cuda.memory_allocated: 6.458893299102783 GB
+After base out torch.cuda.memory_allocated: 6.462799549102783 GB
+After lora out torch.cuda.memory_allocated: 6.466736316680908 GB
+Before dequantize torch.cuda.memory_allocated: 6.462830066680908 GB
+After dequantize torch.cuda.memory_allocated: 6.525330066680908 GB
+After base out torch.cuda.memory_allocated: 6.529236316680908 GB
+After lora out torch.cuda.memory_allocated: 6.533173084259033 GB
+Before dequantize torch.cuda.memory_allocated: 6.544922351837158 GB
+After dequantize torch.cuda.memory_allocated: 6.607422351837158 GB
+After base out torch.cuda.memory_allocated: 6.611328601837158 GB
+After lora out torch.cuda.memory_allocated: 6.615265369415283 GB
+Before dequantize torch.cuda.memory_allocated: 6.6113600730896 GB
+After dequantize torch.cuda.memory_allocated: 6.7793288230896 GB
+After base out torch.cuda.memory_allocated: 6.7898268699646 GB
+After lora out torch.cuda.memory_allocated: 6.800355434417725 GB
+Before dequantize torch.cuda.memory_allocated: 6.800355434417725 GB
+After dequantize torch.cuda.memory_allocated: 6.968324184417725 GB
+After base out torch.cuda.memory_allocated: 6.978822231292725 GB
+After lora out torch.cuda.memory_allocated: 6.98935079574585 GB
+Before dequantize torch.cuda.memory_allocated: 6.98935079574585 GB
+After dequantize torch.cuda.memory_allocated: 7.15731954574585 GB
+After base out torch.cuda.memory_allocated: 7.16122579574585 GB
+After lora out torch.cuda.memory_allocated: 7.165162563323975 GB
+Before dequantize torch.cuda.memory_allocated: 7.165163516998291 GB
+After dequantize torch.cuda.memory_allocated: 7.227663516998291 GB
+After base out torch.cuda.memory_allocated: 7.231569766998291 GB
+After lora out torch.cuda.memory_allocated: 7.235506534576416 GB
+Before dequantize torch.cuda.memory_allocated: 7.231600284576416 GB
+After dequantize torch.cuda.memory_allocated: 7.294100284576416 GB
+After base out torch.cuda.memory_allocated: 7.298006534576416 GB
+After lora out torch.cuda.memory_allocated: 7.301943302154541 GB
+Before dequantize torch.cuda.memory_allocated: 7.298037052154541 GB
+After dequantize torch.cuda.memory_allocated: 7.360537052154541 GB
+After base out torch.cuda.memory_allocated: 7.364443302154541 GB
+After lora out torch.cuda.memory_allocated: 7.368380069732666 GB
+Before dequantize torch.cuda.memory_allocated: 7.380129337310791 GB
+After dequantize torch.cuda.memory_allocated: 7.442629337310791 GB
+After base out torch.cuda.memory_allocated: 7.446535587310791 GB
+After lora out torch.cuda.memory_allocated: 7.450472354888916 GB
+Before dequantize torch.cuda.memory_allocated: 7.446567058563232 GB
+After dequantize torch.cuda.memory_allocated: 7.614535808563232 GB
+After base out torch.cuda.memory_allocated: 7.625033855438232 GB
+After lora out torch.cuda.memory_allocated: 7.635562419891357 GB
+Before dequantize torch.cuda.memory_allocated: 7.635562419891357 GB
+After dequantize torch.cuda.memory_allocated: 7.803531169891357 GB
+After base out torch.cuda.memory_allocated: 7.814029216766357 GB
+After lora out torch.cuda.memory_allocated: 7.824557781219482 GB
+Before dequantize torch.cuda.memory_allocated: 7.824557781219482 GB
+After dequantize torch.cuda.memory_allocated: 7.992526531219482 GB
+After base out torch.cuda.memory_allocated: 7.996432781219482 GB
+After lora out torch.cuda.memory_allocated: 8.000369548797607 GB
+Before dequantize torch.cuda.memory_allocated: 8.000370502471924 GB
+After dequantize torch.cuda.memory_allocated: 8.062870502471924 GB
+After base out torch.cuda.memory_allocated: 8.066776752471924 GB
+After lora out torch.cuda.memory_allocated: 8.070713520050049 GB
+Before dequantize torch.cuda.memory_allocated: 8.066807270050049 GB
+After dequantize torch.cuda.memory_allocated: 8.129307270050049 GB
+After base out torch.cuda.memory_allocated: 8.133213520050049 GB
+After lora out torch.cuda.memory_allocated: 8.137150287628174 GB
+Before dequantize torch.cuda.memory_allocated: 8.133244037628174 GB
+After dequantize torch.cuda.memory_allocated: 8.195744037628174 GB
+After base out torch.cuda.memory_allocated: 8.199650287628174 GB
+After lora out torch.cuda.memory_allocated: 8.203587055206299 GB
+Before dequantize torch.cuda.memory_allocated: 8.215336322784424 GB
+After dequantize torch.cuda.memory_allocated: 8.277836322784424 GB
+After base out torch.cuda.memory_allocated: 8.281742572784424 GB
+After lora out torch.cuda.memory_allocated: 8.285679340362549 GB
+Before dequantize torch.cuda.memory_allocated: 8.281774044036865 GB
+After dequantize torch.cuda.memory_allocated: 8.449742794036865 GB
+After base out torch.cuda.memory_allocated: 8.460240840911865 GB
+After lora out torch.cuda.memory_allocated: 8.47076940536499 GB
+Before dequantize torch.cuda.memory_allocated: 8.47076940536499 GB
+After dequantize torch.cuda.memory_allocated: 8.63873815536499 GB
+After base out torch.cuda.memory_allocated: 8.64923620223999 GB
+After lora out torch.cuda.memory_allocated: 8.659764766693115 GB
+Before dequantize torch.cuda.memory_allocated: 8.659764766693115 GB
+After dequantize torch.cuda.memory_allocated: 8.827733516693115 GB
+After base out torch.cuda.memory_allocated: 8.831639766693115 GB
+After lora out torch.cuda.memory_allocated: 8.83557653427124 GB
+Before dequantize torch.cuda.memory_allocated: 8.835577487945557 GB
+After dequantize torch.cuda.memory_allocated: 8.898077487945557 GB
+After base out torch.cuda.memory_allocated: 8.901983737945557 GB
+After lora out torch.cuda.memory_allocated: 8.905920505523682 GB
+Before dequantize torch.cuda.memory_allocated: 8.902014255523682 GB
+After dequantize torch.cuda.memory_allocated: 8.964514255523682 GB
+After base out torch.cuda.memory_allocated: 8.968420505523682 GB
+After lora out torch.cuda.memory_allocated: 8.972357273101807 GB
+Before dequantize torch.cuda.memory_allocated: 8.968451023101807 GB
+After dequantize torch.cuda.memory_allocated: 9.030951023101807 GB
+After base out torch.cuda.memory_allocated: 9.034857273101807 GB
+After lora out torch.cuda.memory_allocated: 9.038794040679932 GB
+Before dequantize torch.cuda.memory_allocated: 9.050543308258057 GB
+After dequantize torch.cuda.memory_allocated: 9.113043308258057 GB
+After base out torch.cuda.memory_allocated: 9.116949558258057 GB
+After lora out torch.cuda.memory_allocated: 9.120886325836182 GB
+Before dequantize torch.cuda.memory_allocated: 9.116981029510498 GB
+After dequantize torch.cuda.memory_allocated: 9.284949779510498 GB
+After base out torch.cuda.memory_allocated: 9.295447826385498 GB
+After lora out torch.cuda.memory_allocated: 9.305976390838623 GB
+Before dequantize torch.cuda.memory_allocated: 9.305976390838623 GB
+After dequantize torch.cuda.memory_allocated: 9.473945140838623 GB
+After base out torch.cuda.memory_allocated: 9.484443187713623 GB
+After lora out torch.cuda.memory_allocated: 9.494971752166748 GB
+Before dequantize torch.cuda.memory_allocated: 9.494971752166748 GB
+After dequantize torch.cuda.memory_allocated: 9.662940502166748 GB
+After base out torch.cuda.memory_allocated: 9.666846752166748 GB
+After lora out torch.cuda.memory_allocated: 9.670783519744873 GB
+Before dequantize torch.cuda.memory_allocated: 9.67078447341919 GB
+After dequantize torch.cuda.memory_allocated: 9.73328447341919 GB
+After base out torch.cuda.memory_allocated: 9.73719072341919 GB
+After lora out torch.cuda.memory_allocated: 9.741127490997314 GB
+Before dequantize torch.cuda.memory_allocated: 9.737221240997314 GB
+After dequantize torch.cuda.memory_allocated: 9.799721240997314 GB
+After base out torch.cuda.memory_allocated: 9.803627490997314 GB
+After lora out torch.cuda.memory_allocated: 9.80756425857544 GB
+Before dequantize torch.cuda.memory_allocated: 9.80365800857544 GB
+After dequantize torch.cuda.memory_allocated: 9.86615800857544 GB
+After base out torch.cuda.memory_allocated: 9.87006425857544 GB
+After lora out torch.cuda.memory_allocated: 9.874001026153564 GB
+Before dequantize torch.cuda.memory_allocated: 9.88575029373169 GB
+After dequantize torch.cuda.memory_allocated: 9.94825029373169 GB
+After base out torch.cuda.memory_allocated: 9.95215654373169 GB
+After lora out torch.cuda.memory_allocated: 9.956093311309814 GB
+Before dequantize torch.cuda.memory_allocated: 9.95218801498413 GB
+After dequantize torch.cuda.memory_allocated: 10.12015676498413 GB
+After base out torch.cuda.memory_allocated: 10.13065481185913 GB
+After lora out torch.cuda.memory_allocated: 10.141183376312256 GB
+Before dequantize torch.cuda.memory_allocated: 10.141183376312256 GB
+After dequantize torch.cuda.memory_allocated: 10.309152126312256 GB
+After base out torch.cuda.memory_allocated: 10.319650173187256 GB
+After lora out torch.cuda.memory_allocated: 10.33017873764038 GB
+Before dequantize torch.cuda.memory_allocated: 10.33017873764038 GB
+Traceback (most recent call last):
+  File "/mainfs/lyceum/yw16u21/comp6258/LoftQ_Private/custom_loftq/run_loftq.py", line 61, in <module>
+    clm_utils.train(model, tokenizer, model_args, training_args, raw_data)
+  File "/mainfs/lyceum/yw16u21/comp6258/LoftQ_Private/custom_loftq/clm_utils.py", line 96, in train
+    model(
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/transformers/utils/generic.py", line 965, in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/transformers/utils/deprecation.py", line 172, in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/transformers/models/llama/modeling_llama.py", line 821, in forward
+    outputs: BaseModelOutputWithPast = self.model(
+                                       ^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/transformers/utils/generic.py", line 965, in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/transformers/models/llama/modeling_llama.py", line 571, in forward
+    layer_outputs = decoder_layer(
+                    ^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/transformers/models/llama/modeling_llama.py", line 334, in forward
+    hidden_states = self.mlp(hidden_states)
+                    ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/transformers/models/llama/modeling_llama.py", line 172, in forward
+    down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mainfs/lyceum/yw16u21/comp6258/LoftQ_Private/custom_loftq/loftq.py", line 141, in forward
+    weight = self.quantizer.dequantize_block(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mainfs/lyceum/yw16u21/comp6258/LoftQ_Private/custom_loftq/loftq.py", line 404, in dequantize_block
+    lookup_table_idx = qweight.to(torch.long) % 2**self.num_bits
+                       ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 86.00 MiB. GPU 0 has a total capacity of 10.91 GiB of which 20.06 MiB is free. Including non-PyTorch memory, this process has 10.89 GiB memory in use. Of the allocated memory 10.68 GiB is allocated by PyTorch, and 55.15 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/bin/accelerate", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/accelerate/commands/accelerate_cli.py", line 48, in main
+    args.func(args)
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/accelerate/commands/launch.py", line 1194, in launch_command
+    simple_launcher(args)
+  File "/lyceum/yw16u21/.conda/envs/comp6258-env/lib/python3.12/site-packages/accelerate/commands/launch.py", line 780, in simple_launcher
+    raise subprocess.CalledProcessError(returncode=process.returncode, cmd=cmd)
+subprocess.CalledProcessError: Command '['/lyceum/yw16u21/.conda/envs/comp6258-env/bin/python3.12', 'run_loftq.py', '--model_name_or_path', 'meta-llama/Llama-2-7b-hf', '--data_name', 'mikasenghaas/wikitext-2', '--task_name', 'default', '--decompose', '--loftq', '--reduced_rank', '32', '--num_iter', '1', '--int_bit', '2', '--remove_unused_columns', 'False', '--true_quantization', '--from_saved']' returned non-zero exit status 1.
