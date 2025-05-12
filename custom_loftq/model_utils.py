@@ -59,7 +59,7 @@ def get_base_class(model_name: str, data_name: str = None) -> Tuple[Type[PreTrai
         return ModelClass, TaskType.SEQ_2_SEQ_LM
 
     elif any(name in model_name.lower() for name in ["deberta", "roberta", "bert"]):
-        if data_name == "glue":
+        if data_name == "glue" or data_name == "anli":
             if model_type == "bert":
                 from transformers import BertForSequenceClassification as ModelClass
             elif model_type == "roberta":
@@ -118,7 +118,7 @@ def load_base_model(model_name:str, token: str, data_name: str, num_labels: Opti
         task_type = TaskType.SEQ_2_SEQ_LM
 
     elif any(name in model_name.lower() for name in ["deberta", "roberta", "bert"]):
-        if data_name == "glue":
+        if data_name == "glue" or data_name == "anli":
             model = AutoModelForSequenceClassification.from_pretrained(
                 model_name,
                 token=token,

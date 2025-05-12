@@ -4,7 +4,7 @@ import os
 import logging
 
 from transformers import Trainer
-from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, load_dataset, concatenate_datasets
 from peft import TaskType
 
 from model_utils import save_quantized_model, get_model_dir
@@ -12,6 +12,28 @@ from model_utils import save_quantized_model, get_model_dir
 def load_raw_dataset(dataset_name: str, task_name: str) -> Tuple[Union[DatasetDict, Dataset, IterableDatasetDict, IterableDataset], Set, int]:
     logging.warning(f"Loading raw dataset: {dataset_name} - {task_name}")
     raw_data = load_dataset(dataset_name, task_name)
+    if dataset_name == 'anli':
+        train = concatenate_datasets([
+            raw_data['train_r1'],
+            raw_data['train_r2'],
+            raw_data['train_r3']
+        ])
+        dev = concatenate_datasets([
+            raw_data['dev_r1'],
+            raw_data['dev_r2'],
+            raw_data['dev_r3']
+        ])
+        test = concatenate_datasets([
+            raw_data['test_r1'],
+            raw_data['test_r2'],
+            raw_data['test_r3']
+        ])
+        raw_data = DatasetDict({
+            "train": train,
+            "validation": dev,
+            "test": test,
+        })
+
     return raw_data
 
 class LoFTQTrainer(Trainer):
