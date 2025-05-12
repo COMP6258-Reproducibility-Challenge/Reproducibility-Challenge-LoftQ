@@ -23,7 +23,7 @@ if __name__ == "__main__":
     model_name = model_args.model_name_or_path
     
     if not base_args.from_saved:
-        model, task_type, tokenizer, target_modules, excluded_modules = model_utils.load_base_model(model_name, model_args.token, num_labels)
+        model, task_type, tokenizer, target_modules, excluded_modules = model_utils.load_base_model(model_name, model_args.token, data_args.data_name, num_labels)
         base_total = model_utils.count_total_parameters(model)
         base_trainable = model_utils.count_trainable_parameters(model)
         print(f"Base - Total parameters: {base_total:,}")
@@ -31,7 +31,7 @@ if __name__ == "__main__":
         model = model_utils.quantize_model(model, model_args, target_modules, excluded_modules)
         model_utils.save_quantized_model(model, tokenizer, base_args.save_dir, model_args)
     else:
-        model_class, task_type = model_utils.get_base_class(model_name)
+        model_class, task_type = model_utils.get_base_class(model_name,  data_args.data_name)
         model, tokenizer, target_modules, excluded_modules = model_utils.load_loftq_model(model_class, model_args, base_args.save_dir, num_labels=num_labels)
 
     model_utils.check_model_fits_task(task_type, data_args.data_name.split("/")[-1])
@@ -53,7 +53,10 @@ if __name__ == "__main__":
                 classification_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
             else:
                 classification_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
-        elif task_type == TaskType.SEQ_CLS:
+        elif task_type == TaskType.QUESTION_ANS:
+            if not training_args.train_small is None and training_args.train_small == True:
+                raw_data['train'] = qa_utils.create_reduced_dataset(raw_data["train"], num_examples=100)
+                raw_data['validation'] = qa_utils.create_reduced_dataset(raw_data["validation"], num_examples=3)
             qa_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
         elif task_type == TaskType.SEQ_2_SEQ_LM:
             summarisation_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)

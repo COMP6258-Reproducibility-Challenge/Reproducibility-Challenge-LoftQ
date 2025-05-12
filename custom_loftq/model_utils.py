@@ -9,6 +9,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoModelForSeq2SeqLM,
     AutoModelForSequenceClassification,
+    AutoModelForQuestionAnswering,
     AutoConfig,
     PreTrainedModel,
     logging as transformers_logging
@@ -37,7 +38,7 @@ def get_model_dir(save_dir: str, model_args: ModelArguments) -> str:
     full_name = model_name + model_details
     return os.path.join(save_dir, full_name)
 
-def get_base_class(model_name: str) -> Tuple[Type[PreTrainedModel], TaskType]:
+def get_base_class(model_name: str, data_name: str = None) -> Tuple[Type[PreTrainedModel], TaskType]:
     config = AutoConfig.from_pretrained(model_name)
     model_type = config.model_type
     
@@ -58,13 +59,22 @@ def get_base_class(model_name: str) -> Tuple[Type[PreTrainedModel], TaskType]:
         return ModelClass, TaskType.SEQ_2_SEQ_LM
 
     elif any(name in model_name.lower() for name in ["deberta", "roberta", "bert"]):
-        if model_type == "bert":
-            from transformers import BertForSequenceClassification as ModelClass
-        elif model_type == "roberta":
-            from transformers import RobertaForSequenceClassification as ModelClass
+        if data_name == "glue":
+            if model_type == "bert":
+                from transformers import BertForSequenceClassification as ModelClass
+            elif model_type == "roberta":
+                from transformers import RobertaForSequenceClassification as ModelClass
+            else:
+                from transformers import DebertaV2ForSequenceClassification as ModelClass
+            return ModelClass, TaskType.SEQ_CLS
         else:
-            from transformers import DebertaV2ForSequenceClassification as ModelClass
-        return ModelClass, TaskType.SEQ_CLS
+            if model_type == "bert":
+                from transformers import BertForQuestionAnswering as ModelClass
+            elif model_type == "roberta":
+                from transformers import RobertaForQuestionAnswering as ModelClass
+            else:
+                from transformers import DebertaV2ForQuestionAnswering as ModelClass
+            return ModelClass, TaskType.QUESTION_ANS
     else:
         raise NotImplementedError("Other models not supported yet.")
 
@@ -84,13 +94,13 @@ def get_target_excluded_modules(model_name: str) -> Tuple[List[str], List[str]]:
     
     return target_modules, excluded_modules
 
-def load_base_model(model_name:str, token: str, num_labels: Optional[int]) -> Tuple[Union[PreTrainedModel, torch.nn.Module], TaskType, AutoTokenizer, List[str], List[str]]:
+def load_base_model(model_name:str, token: str, data_name: str, num_labels: Optional[int]) -> Tuple[Union[PreTrainedModel, torch.nn.Module], TaskType, AutoTokenizer, List[str], List[str]]:
     logging.warning("Loading base model")
     tokenizer = AutoTokenizer.from_pretrained(
         model_name,
         token=token,
         padding_side="right",
-        use_fast=False,
+        use_fast=True,
         trust_remote_code=True
     )
     if any(name in model_name.lower() for name in ["llama", "mistral", "falcon"]):
@@ -108,12 +118,19 @@ def load_base_model(model_name:str, token: str, num_labels: Optional[int]) -> Tu
         task_type = TaskType.SEQ_2_SEQ_LM
 
     elif any(name in model_name.lower() for name in ["deberta", "roberta", "bert"]):
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            token=token,
-            num_labels=num_labels
-        )
-        task_type = TaskType.SEQ_CLS
+        if data_name == "glue":
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_name,
+                token=token,
+                num_labels=num_labels
+            )
+            task_type = TaskType.SEQ_CLS
+        else:
+            model = AutoModelForQuestionAnswering.from_pretrained(
+                model_name,
+                token=token
+            )
+            task_type = TaskType.QUESTION_ANS
     else:
         raise NotImplementedError("Other models not supported yet.")
     
@@ -356,8 +373,10 @@ def load_loftq_model(model_class: Type[PreTrainedModel], model_args: ModelArgume
     return model, tokenizer, target_modules, excluded_modules
 
 def check_model_fits_task(task_type: TaskType, dataset_name: str):
-    if task_type == TaskType.SEQ_CLS and dataset_name not in ['glue', 'anli', 'squad']:
+    if task_type == TaskType.SEQ_CLS and dataset_name not in ['glue', 'anli']:
         raise Exception("You are attempting to use a classification model on a non classification task")
+    elif task_type == TaskType.QUESTION_ANS and dataset_name not in ["squad"]:
+        raise Exception("You are attempting to use a question answering model on a non question answering task")
     elif task_type == TaskType.SEQ_2_SEQ_LM and dataset_name not in ["amazon_reviews_multi", "big_patent", "cnn_dailymail", "orange_sum", "pn_summary", "psc", "samsum", "thaisum", "xglue", "xsum", "wiki_summary", "multi_news"]:
         raise Exception("You are attempting to use a summarisation model on a non summarisation task")
     elif task_type == TaskType.CAUSAL_LM and dataset_name not in ["wikitext-2", "gsm8k"]:

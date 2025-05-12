@@ -120,6 +120,15 @@ class DataArguments:
             )
         },
     )
+    max_seq_length: int = field(
+        default=384,
+        metadata={
+            "help": (
+                "The maximum total input sequence length after tokenization. Sequences longer "
+                "than this will be truncated, sequences shorter will be padded."
+            )
+        },
+    )
     pad_to_max_length: bool = field(
         default=False,
         metadata={
@@ -134,6 +143,23 @@ class DataArguments:
         default=True,
         metadata={
             "help": "Whether to ignore the tokens corresponding to padded labels in the loss computation or not."
+        },
+    )
+    doc_stride: int = field(
+        default=128,
+        metadata={"help": "When splitting up a long document into chunks, how much stride to take between chunks."},
+    )
+    version_2_with_negative: bool = field(
+        default=False, metadata={"help": "Only used in QA. If true, some of the examples do not have an answer."}
+    )
+    null_score_diff_threshold: float = field(
+        default=0.0,
+        metadata={
+            "help": (
+                "The threshold used to select the null answer: if the best answer has a score that is less than "
+                "the score of the null answer minus this threshold, the null answer is selected for this example. "
+                "Only useful when `version_2_with_negative=True`."
+            )
         },
     )
     
