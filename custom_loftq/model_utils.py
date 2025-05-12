@@ -100,7 +100,7 @@ def load_base_model(model_name:str, token: str, data_name: str, num_labels: Opti
         model_name,
         token=token,
         padding_side="right",
-        use_fast=True,
+        use_fast=True if data_name == "squad" else False,
         trust_remote_code=True
     )
     if any(name in model_name.lower() for name in ["llama", "mistral", "falcon"]):
