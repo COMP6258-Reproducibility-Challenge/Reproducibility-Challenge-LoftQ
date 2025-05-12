@@ -13,6 +13,8 @@ from peft import TaskType
 
 from transformers import PreTrainedModel
 
+import torch
+
 if __name__ == "__main__":
     parser = HfArgumentParser((BaseArguments, ModelArguments, DataArguments, TrainingArguments))
     base_args, model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -40,6 +42,10 @@ if __name__ == "__main__":
     quant_trainable = model_utils.count_trainable_parameters(model)
     print(f"LoftQ - Total parameters: {quant_total:,}")
     print(f"LoftQ - Trainable parameters: {quant_trainable:,} ({100*quant_trainable/quant_total:.2f}%)")
+    
+    print(torch.cuda.memory_reserved())
+    torch.cuda.empty_cache()
+    print(torch.cuda.memory_reserved())
     if not training_args.no_train:
         if task_type == TaskType.SEQ_CLS:
             if not training_args.train_small is None and training_args.train_small == True:
@@ -52,7 +58,10 @@ if __name__ == "__main__":
                     
                 classification_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
             else:
+                torch.cuda.reset_peak_memory_stats()
+                # do one forward+backward
                 classification_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
+                print(torch.cuda.max_memory_reserved())
         elif task_type == TaskType.QUESTION_ANS:
             if not training_args.train_small is None and training_args.train_small == True:
                 raw_data['train'] = qa_utils.create_reduced_dataset(raw_data["train"], num_examples=100)
