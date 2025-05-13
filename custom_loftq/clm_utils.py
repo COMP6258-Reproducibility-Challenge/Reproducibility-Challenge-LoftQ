@@ -76,6 +76,7 @@ def train(model, tokenizer, model_args, training_args, raw_datasets):
     logging.warning("Preparing to train model")
     metric = evaluate.load("accuracy")
     tokenizer.pad_token = tokenizer.eos_token
+    model.cuda()
     if torch.cuda.device_count() > 1:
         model = DataParallel(model)
 
@@ -119,12 +120,13 @@ def train(model, tokenizer, model_args, training_args, raw_datasets):
     except OverflowError:
         perplexity = float("inf")
     metric_result["perplexity"] = perplexity
+    print(metric_result)
 
 
 
     # Step 11: Save the fine-tuned model
-    print("Saving final fine-tuned model...")
     model_dir = get_model_dir("trained_models", model_args)
+    print(f"Saving final fine-tuned model to [ {model_dir} ] ...")
     trainer.save_model(model_dir)
 
     print("Process completed!")
