@@ -165,7 +165,9 @@ class _BlockQuantizer: # Renamed to avoid potential clash if user has BlockQuant
         scaled_blocks = dequantized_blocks_normalized * scales.unsqueeze(-1)
         
         scaled_flat_padded = scaled_blocks.view(-1)
-        original_numel = target_shape.numel()
+        if not isinstance(target_shape, tuple) or len(target_shape) != 2:
+            raise ValueError(f"dequantize_block expected target_shape to be a 2-element tuple, but got {target_shape}")
+        original_numel = target_shape[0] * target_shape[1]
         dequantized_flat = scaled_flat_padded[:original_numel]
         
         return dequantized_flat.reshape(target_shape)
@@ -215,16 +217,19 @@ class TrueQuantizedConv2d(nn.Module):
             "kernel_size": (1,1), "stride": (1,1), "padding": 0, "dilation": (1,1),
         }
 
+
+        #Don't do the group stuff in A, just in B but also add division - also just start from the basics and slowly introduce features
+        #Kernel 3x3, 1 stride, no padding
         self.lora_A = nn.Conv2d(
             in_channels=self.in_channels_orig, 
-            out_channels=self.reduced_rank * self.groups_orig,
+            out_channels=self.reduced_rank,
             groups=self.groups_orig,
             bias=lora_A_bias,
             **lora_A_k_s_p_d
         )
         self.lora_B = nn.Conv2d(
-            in_channels=self.reduced_rank * self.groups_orig,
-            out_channels=self.out_channels_orig,
+            in_channels=self.reduced_rank,
+            out_channels=self.out_channels_orig // self.groups_orig,
             kernel_size=(1, 1),
             groups=self.groups_orig,
             bias=lora_B_bias
