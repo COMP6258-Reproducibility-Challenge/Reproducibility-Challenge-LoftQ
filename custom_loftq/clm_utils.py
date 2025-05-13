@@ -44,7 +44,7 @@ def preprocessor(example, col_name, tokenizer):
     #     result["labels"].append(processed["input_ids"].copy())
     # print(tokenizer.pad_token)
     result = tokenizer(example[col_name], padding="max_length", truncation=True, max_length=256)
-    result["labels"] = result["input_ids"].copy().to("cuda:3")
+    result["labels"] = result["input_ids"].copy()
     return result
 
     # tokenizer.pad_token = tokenizer.eos_token

@@ -1,0 +1,392 @@
+Running SLURM prolog script on pink51.cluster.local
+===============================================================================
+Job started on Mon May 12 16:45:56 BST 2025
+Job ID          : 7387166
+Job name        : q_t_iridis.sh
+WorkDir         : /mainfs/lyceum/cjm1n19/LoftQ/custom_loftq
+Command         : ./scripts/q_t_iridis.sh
+Partition       : lyceum
+Num hosts       : 1
+Num cores       : 16
+Num of tasks    : 1
+Hosts allocated : pink51
+Job Output Follows ...
+===============================================================================
+[2025-05-12 16:47:06,032] [INFO] [real_accelerator.py:239:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[2025-05-12 16:47:06,032] [INFO] [real_accelerator.py:239:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[2025-05-12 16:47:06,032] [INFO] [real_accelerator.py:239:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[2025-05-12 16:47:06,032] [INFO] [real_accelerator.py:239:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+WARNING:root:Loading raw dataset: squad - plain_text
+WARNING:root:Loading raw dataset: squad - plain_text
+WARNING:root:Loading raw dataset: squad - plain_text
+WARNING:root:Loading raw dataset: squad - plain_text
+Using the latest cached version of the dataset since squad couldn't be found on the Hugging Face Hub
+WARNING:datasets.load:Using the latest cached version of the dataset since squad couldn't be found on the Hugging Face Hub
+Using the latest cached version of the dataset since squad couldn't be found on the Hugging Face Hub
+Using the latest cached version of the dataset since squad couldn't be found on the Hugging Face Hub
+Using the latest cached version of the dataset since squad couldn't be found on the Hugging Face Hub
+WARNING:datasets.load:Using the latest cached version of the dataset since squad couldn't be found on the Hugging Face Hub
+WARNING:datasets.load:Using the latest cached version of the dataset since squad couldn't be found on the Hugging Face Hub
+WARNING:datasets.load:Using the latest cached version of the dataset since squad couldn't be found on the Hugging Face Hub
+Found the latest cached dataset configuration 'plain_text' at /scratch/cjm1n19/huggingface/datasets/squad/plain_text/0.0.0/7b6d24c440a36b6815f21b70d25016731768db1f (last modified on Mon May 12 13:05:45 2025).
+WARNING:datasets.packaged_modules.cache.cache:Found the latest cached dataset configuration 'plain_text' at /scratch/cjm1n19/huggingface/datasets/squad/plain_text/0.0.0/7b6d24c440a36b6815f21b70d25016731768db1f (last modified on Mon May 12 13:05:45 2025).
+Found the latest cached dataset configuration 'plain_text' at /scratch/cjm1n19/huggingface/datasets/squad/plain_text/0.0.0/7b6d24c440a36b6815f21b70d25016731768db1f (last modified on Mon May 12 13:05:45 2025).
+WARNING:datasets.packaged_modules.cache.cache:Found the latest cached dataset configuration 'plain_text' at /scratch/cjm1n19/huggingface/datasets/squad/plain_text/0.0.0/7b6d24c440a36b6815f21b70d25016731768db1f (last modified on Mon May 12 13:05:45 2025).
+Found the latest cached dataset configuration 'plain_text' at /scratch/cjm1n19/huggingface/datasets/squad/plain_text/0.0.0/7b6d24c440a36b6815f21b70d25016731768db1f (last modified on Mon May 12 13:05:45 2025).
+Found the latest cached dataset configuration 'plain_text' at /scratch/cjm1n19/huggingface/datasets/squad/plain_text/0.0.0/7b6d24c440a36b6815f21b70d25016731768db1f (last modified on Mon May 12 13:05:45 2025).
+WARNING:datasets.packaged_modules.cache.cache:Found the latest cached dataset configuration 'plain_text' at /scratch/cjm1n19/huggingface/datasets/squad/plain_text/0.0.0/7b6d24c440a36b6815f21b70d25016731768db1f (last modified on Mon May 12 13:05:45 2025).
+WARNING:datasets.packaged_modules.cache.cache:Found the latest cached dataset configuration 'plain_text' at /scratch/cjm1n19/huggingface/datasets/squad/plain_text/0.0.0/7b6d24c440a36b6815f21b70d25016731768db1f (last modified on Mon May 12 13:05:45 2025).
+WARNING:root:Loading base model
+WARNING:root:Loading base model
+WARNING:root:Loading base model
+WARNING:root:Loading base model
+/lyceum/cjm1n19/.conda/envs/comp6258_env/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:559: UserWarning: The sentencepiece tokenizer that you are converting to a fast tokenizer uses the byte fallback option which is not implemented in the fast tokenizers. In practice this means that the fast version of the tokenizer can produce unknown tokens whereas the sentencepiece version would have converted these unknown tokens into a sequence of byte tokens matching the original piece of text.
+  warnings.warn(
+/lyceum/cjm1n19/.conda/envs/comp6258_env/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:559: UserWarning: The sentencepiece tokenizer that you are converting to a fast tokenizer uses the byte fallback option which is not implemented in the fast tokenizers. In practice this means that the fast version of the tokenizer can produce unknown tokens whereas the sentencepiece version would have converted these unknown tokens into a sequence of byte tokens matching the original piece of text.
+  warnings.warn(
+/lyceum/cjm1n19/.conda/envs/comp6258_env/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:559: UserWarning: The sentencepiece tokenizer that you are converting to a fast tokenizer uses the byte fallback option which is not implemented in the fast tokenizers. In practice this means that the fast version of the tokenizer can produce unknown tokens whereas the sentencepiece version would have converted these unknown tokens into a sequence of byte tokens matching the original piece of text.
+  warnings.warn(
+/lyceum/cjm1n19/.conda/envs/comp6258_env/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:559: UserWarning: The sentencepiece tokenizer that you are converting to a fast tokenizer uses the byte fallback option which is not implemented in the fast tokenizers. In practice this means that the fast version of the tokenizer can produce unknown tokens whereas the sentencepiece version would have converted these unknown tokens into a sequence of byte tokens matching the original piece of text.
+  warnings.warn(
+Some weights of DebertaV2ForQuestionAnswering were not initialized from the model checkpoint at microsoft/deberta-v3-base and are newly initialized: ['qa_outputs.bias', 'qa_outputs.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Base - Total parameters: 183,833,090
+Base - Trainable parameters: 183,833,090 (100.00%)
+WARNING:root:Quantizing model, this may take a while
+WARNING:root:Model name: microsoft/deberta-v3-base, Method: uniform, Rank: 16, Bits: 2, True quantize: False
+Converting query_proj layer with simulated quantization
+Some weights of DebertaV2ForQuestionAnswering were not initialized from the model checkpoint at microsoft/deberta-v3-base and are newly initialized: ['qa_outputs.bias', 'qa_outputs.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Some weights of DebertaV2ForQuestionAnswering were not initialized from the model checkpoint at microsoft/deberta-v3-base and are newly initialized: ['qa_outputs.bias', 'qa_outputs.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Some weights of DebertaV2ForQuestionAnswering were not initialized from the model checkpoint at microsoft/deberta-v3-base and are newly initialized: ['qa_outputs.bias', 'qa_outputs.weight']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Base - Total parameters: 183,833,090
+Base - Trainable parameters: 183,833,090 (100.00%)Base - Total parameters: 183,833,090
+
+Base - Trainable parameters: 183,833,090 (100.00%)Base - Total parameters: 183,833,090
+
+WARNING:root:Quantizing model, this may take a while
+Base - Trainable parameters: 183,833,090 (100.00%)
+WARNING:root:Quantizing model, this may take a while
+WARNING:root:Model name: microsoft/deberta-v3-base, Method: uniform, Rank: 16, Bits: 2, True quantize: False
+WARNING:root:Quantizing model, this may take a while
+WARNING:root:Model name: microsoft/deberta-v3-base, Method: uniform, Rank: 16, Bits: 2, True quantize: False
+Converting query_proj layer with simulated quantization
+WARNING:root:Model name: microsoft/deberta-v3-base, Method: uniform, Rank: 16, Bits: 2, True quantize: False
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantizationConverting key_proj layer with simulated quantization
+
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting query_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting key_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting value_proj layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+WARNING:root:Saving quantized model
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+Converting dense layer with simulated quantization
+WARNING:root:Saving quantized model
+WARNING:root:Saving quantized model
+WARNING:root:Saving quantized model
+LoftQ - Total parameters: 186,570,242
+LoftQ - Trainable parameters: 2,654,208 (1.42%)
+WARNING:root:Preparing to train model
+LoftQ - Total parameters: 186,570,242
+LoftQ - Trainable parameters: 2,654,208 (1.42%)
+WARNING:root:Preparing to train model
+WARNING:evaluate.loading:Using the latest cached version of the module from /scratch/cjm1n19/huggingface/modules/evaluate_modules/metrics/evaluate-metric--squad/b4e2dbca455821c7367faa26712f378254b69040ebaab90b64bdeb465e4a304d (last modified on Mon May 12 13:02:18 2025) since it couldn't be found locally at evaluate-metric--squad, or remotely on the Hugging Face Hub.
+WARNING:evaluate.loading:Using the latest cached version of the module from /scratch/cjm1n19/huggingface/modules/evaluate_modules/metrics/evaluate-metric--squad/b4e2dbca455821c7367faa26712f378254b69040ebaab90b64bdeb465e4a304d (last modified on Mon May 12 13:02:18 2025) since it couldn't be found locally at evaluate-metric--squad, or remotely on the Hugging Face Hub.
+LoftQ - Total parameters: 186,570,242
+LoftQ - Trainable parameters: 2,654,208 (1.42%)
+WARNING:root:Preparing to train model
+Map:   0%|          | 0/10570 [00:00<?, ? examples/s]Map:   0%|          | 0/10570 [00:00<?, ? examples/s]LoftQ - Total parameters: 186,570,242
+LoftQ - Trainable parameters: 2,654,208 (1.42%)
+WARNING:root:Preparing to train model
+Map:   9%|▉         | 1000/10570 [00:00<00:03, 2462.19 examples/s]Map:   9%|▉         | 1000/10570 [00:00<00:03, 2440.78 examples/s]Map:  19%|█▉        | 2000/10570 [00:00<00:02, 3023.34 examples/s]Map:  19%|█▉        | 2000/10570 [00:00<00:02, 2937.27 examples/s]Map:  28%|██▊       | 3000/10570 [00:01<00:02, 3052.04 examples/s]Map:  28%|██▊       | 3000/10570 [00:01<00:02, 3069.66 examples/s]Map:  38%|███▊      | 4000/10570 [00:01<00:02, 2932.69 examples/s]Map:  38%|███▊      | 4000/10570 [00:01<00:02, 2942.41 examples/s]WARNING:evaluate.loading:Using the latest cached version of the module from /scratch/cjm1n19/huggingface/modules/evaluate_modules/metrics/evaluate-metric--squad/b4e2dbca455821c7367faa26712f378254b69040ebaab90b64bdeb465e4a304d (last modified on Mon May 12 13:02:18 2025) since it couldn't be found locally at evaluate-metric--squad, or remotely on the Hugging Face Hub.
+Map:   0%|          | 0/10570 [00:00<?, ? examples/s]WARNING:evaluate.loading:Using the latest cached version of the module from /scratch/cjm1n19/huggingface/modules/evaluate_modules/metrics/evaluate-metric--squad/b4e2dbca455821c7367faa26712f378254b69040ebaab90b64bdeb465e4a304d (last modified on Mon May 12 13:02:18 2025) since it couldn't be found locally at evaluate-metric--squad, or remotely on the Hugging Face Hub.
+Map:   0%|          | 0/10570 [00:00<?, ? examples/s]Map:   9%|▉         | 1000/10570 [00:00<00:03, 2720.25 examples/s]Map:  19%|█▉        | 2000/10570 [00:00<00:02, 3162.82 examples/s]Map:   9%|▉         | 1000/10570 [00:00<00:04, 2147.56 examples/s]Map:  47%|████▋     | 5000/10570 [00:02<00:03, 1795.86 examples/s]Map:  47%|████▋     | 5000/10570 [00:02<00:03, 1736.11 examples/s]Map:  19%|█▉        | 2000/10570 [00:00<00:03, 2430.01 examples/s]Map:  28%|██▊       | 3000/10570 [00:01<00:03, 2482.57 examples/s]Map:  57%|█████▋    | 6000/10570 [00:02<00:02, 1835.17 examples/s]Map:  57%|█████▋    | 6000/10570 [00:02<00:02, 1770.18 examples/s]Map:  28%|██▊       | 3000/10570 [00:01<00:03, 2193.71 examples/s]Map:  38%|███▊      | 4000/10570 [00:01<00:02, 2382.12 examples/s]Map:  66%|██████▌   | 7000/10570 [00:03<00:01, 1842.78 examples/s]Map:  66%|██████▌   | 7000/10570 [00:03<00:01, 1863.13 examples/s]Map:  38%|███▊      | 4000/10570 [00:01<00:03, 2066.30 examples/s]Map:  76%|███████▌  | 8000/10570 [00:03<00:01, 1943.00 examples/s]Map:  76%|███████▌  | 8000/10570 [00:03<00:01, 1784.74 examples/s]Map:  85%|████████▌ | 9000/10570 [00:04<00:00, 2095.83 examples/s]Map:  47%|████▋     | 5000/10570 [00:02<00:03, 1491.03 examples/s]Map:  85%|████████▌ | 9000/10570 [00:04<00:00, 1797.98 examples/s]Map:  47%|████▋     | 5000/10570 [00:02<00:03, 1507.89 examples/s]Map:  57%|█████▋    | 6000/10570 [00:03<00:02, 1621.68 examples/s]Map:  95%|█████████▍| 10000/10570 [00:04<00:00, 2015.05 examples/s]Map:  95%|█████████▍| 10000/10570 [00:04<00:00, 1910.91 examples/s]Map: 100%|██████████| 10570/10570 [00:05<00:00, 1976.63 examples/s]Map:  57%|█████▋    | 6000/10570 [00:03<00:02, 1656.11 examples/s]Map: 100%|██████████| 10570/10570 [00:05<00:00, 2046.69 examples/s]
+Map: 100%|██████████| 10570/10570 [00:05<00:00, 1992.56 examples/s]Map:  66%|██████▌   | 7000/10570 [00:03<00:02, 1757.81 examples/s]Map: 100%|██████████| 10570/10570 [00:05<00:00, 2001.30 examples/s]
+WARNING:accelerate.utils.other:Detected kernel version 3.10.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.
+Map:  66%|██████▌   | 7000/10570 [00:03<00:01, 1874.29 examples/s]Map:  76%|███████▌  | 8000/10570 [00:04<00:01, 1920.35 examples/s]Map:  76%|███████▌  | 8000/10570 [00:04<00:01, 2051.01 examples/s]Map:  85%|████████▌ | 9000/10570 [00:04<00:00, 2085.64 examples/s]Map:  85%|████████▌ | 9000/10570 [00:04<00:00, 2228.38 examples/s]Map:  95%|█████████▍| 10000/10570 [00:04<00:00, 2237.27 examples/s]Map: 100%|██████████| 10570/10570 [00:05<00:00, 2348.72 examples/s]Map:  95%|█████████▍| 10000/10570 [00:04<00:00, 2388.73 examples/s]Map: 100%|██████████| 10570/10570 [00:05<00:00, 2053.08 examples/s]
+Map: 100%|██████████| 10570/10570 [00:05<00:00, 2466.42 examples/s]Map: 100%|██████████| 10570/10570 [00:05<00:00, 2056.13 examples/s]
+Training model...
+Training model...Training model...
+
+Training model...
+  0%|          | 0/6900 [00:00<?, ?it/s]
