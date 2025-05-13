@@ -87,7 +87,12 @@ def max_dim(m):
     """
     if m.dim() <= 1:
         return -m.dim(), max(m.shape) if m.dim() == 1 else 0
-    return min(range(-m.dim(), -1), key=lambda d: -(m.shape[d] + 1)), max(m.shape)
+    
+    # Find dimension with maximum elements
+    max_d = min(range(-m.dim(), -1), key=lambda d: -(m.shape[d] + 1))
+    
+    # Return that dimension and its actual size
+    return max_d, m.shape[max_d]
 
 def get_trained_save_dir(model_args, data_name, task_name):
     save_dir = "trained_models"

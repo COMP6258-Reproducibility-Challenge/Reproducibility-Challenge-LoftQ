@@ -370,8 +370,6 @@ class BlockQuantizer:
             # Fallback return
             return torch.zeros(0, dtype=idx_dtype, device='cpu')
 
-
-
     def quantize_block(self, weight, num_std=2.5):
         """
         Quantize a weight tensor using block-wise quantization.
@@ -501,58 +499,220 @@ class BlockQuantizer:
         # Create output tensor directly with right size to avoid intermediate allocations
         if self.num_bits < 8:
             bits_per_byte = 8 // self.num_bits
-            
-            # Pre-allocate result tensor of exact size needed
-            M, N = weight_shape
-            num_blocks = M * N // self.block_size
-            weight = torch.zeros((num_blocks, self.block_size), dtype=torch.float32, device=device)
-            
-            # Process with minimal memory usage - work on a copy to preserve original
+            weight = torch.zeros((qweight.shape[0], bits_per_byte), dtype=torch.float32, device=device)
             qweight_temp = qweight.clone()
-            
-            # Extract bits and dequantize
+
             for i in range(bits_per_byte):
-                # Extract bits for this position using bit masking
-                mask = (2**self.num_bits - 1) << (i * self.num_bits)
-                lookup_table_idx = ((qweight_temp & mask) >> (i * self.num_bits)).to(torch.long)
+                # Use bitwise AND instead of modulo - faster and more memory efficient
+                lookup_table_idx = (qweight_temp & (2**self.num_bits - 1)).long()
+                weight[:, i] = self.norm_lookup_table[lookup_table_idx].squeeze()
+                # Right shift in-place
+                qweight_temp >>= self.num_bits
                 
-                # Reshape for efficient indexing
-                idx_flat = lookup_table_idx.view(-1)
+                # Critical fix: delete the temporary tensor
+                del lookup_table_idx
                 
-                # Use index_select for memory efficiency (avoids broadcasting)
-                values = torch.index_select(self.norm_lookup_table, 0, idx_flat)
+            # Delete the temp copy after use
+            del qweight_temp
+            
+            # # Pre-allocate result tensor of exact size needed
+            # M, N = weight_shape
+            # num_blocks = M * N // self.block_size
+            # weight = torch.zeros((num_blocks, self.block_size), dtype=torch.float32, device=device)
+            
+            # # Process with minimal memory usage - work on a copy to preserve original
+            # qweight_temp = qweight.clone()
+            
+            # # Extract bits and dequantize
+            # for i in range(bits_per_byte):
+            #     # Extract bits for this position using bit masking
+            #     mask = (2**self.num_bits - 1) << (i * self.num_bits)
+            #     lookup_table_idx = ((qweight_temp & mask) >> (i * self.num_bits)).to(torch.long)
                 
-                # Place values in appropriate positions in output tensor
-                start_idx = i * (M * N // (bits_per_byte * self.block_size))
-                end_idx = (i + 1) * (M * N // (bits_per_byte * self.block_size))
+            #     # Reshape for efficient indexing
+            #     idx_flat = lookup_table_idx.view(-1)
                 
-                if end_idx <= weight.size(0):
-                    weight[start_idx:end_idx] = values.view(-1, self.block_size)
+            #     # Use index_select for memory efficiency (avoids broadcasting)
+            #     values = torch.index_select(self.norm_lookup_table, 0, idx_flat)
                 
-                # Free memory
-                del idx_flat, values
-                if device.type == 'cuda':
-                    torch.cuda.empty_cache()
+            #     # Place values in appropriate positions in output tensor
+            #     start_idx = i * (M * N // (bits_per_byte * self.block_size))
+            #     end_idx = (i + 1) * (M * N // (bits_per_byte * self.block_size))
+                
+            #     if end_idx <= weight.size(0):
+            #         weight[start_idx:end_idx] = values.view(-1, self.block_size)
+                
+            #     # Free memory
+            #     del idx_flat, values
+            #     if device.type == 'cuda':
+            #         torch.cuda.empty_cache()
         else:
-            # For higher bit quantization, direct lookup
             lookup_table_idx = qweight.squeeze().long()
+            weight = self.norm_lookup_table[lookup_table_idx].reshape(-1, 1)
+            del lookup_table_idx  # Add this line to free memory
+
+            # # For higher bit quantization, direct lookup
+            # lookup_table_idx = qweight.squeeze().long()
             
-            # Use index_select instead of indexing for better memory efficiency
-            weight_values = torch.index_select(self.norm_lookup_table, 0, lookup_table_idx.reshape(-1))
-            weight = weight_values.reshape(-1, self.block_size)
+            # # Use index_select instead of indexing for better memory efficiency
+            # weight_values = torch.index_select(self.norm_lookup_table, 0, lookup_table_idx.reshape(-1))
+            # weight = weight_values.reshape(-1, self.block_size)
             
-            # Free memory
-            del lookup_table_idx, weight_values
-            if device.type == 'cuda':
-                torch.cuda.empty_cache()
+            # # Free memory
+            # del lookup_table_idx, weight_values
+            # if device.type == 'cuda':
+            #     torch.cuda.empty_cache()
         
-        # Apply scaling factors
-        weight = weight * weight_max
+        weight_block = weight.reshape(-1, self.block_size)
+        weight = weight_block * weight_max
+        weight = weight.reshape(weight_shape)
+
+        return weight
+
+
+    # def quantize_block(self, weight, num_std=2.5):
+    #     """
+    #     Quantize a weight tensor using block-wise quantization.
         
-        # Reshape to original dimensions
-        dequantized = weight.reshape(weight_shape)
+    #     Args:
+    #         weight: The weight tensor to quantize
+    #         num_std: Number of standard deviations for uniform quantization scaling
+            
+    #     Returns:
+    #         Tuple of (quantized_weights, weight_max, weight_shape)
+    #     """
+    #     # Validate input shape
+    #     if len(weight.shape) != 2:
+    #         raise ValueError(f"Only support 2D matrix, but your input has {len(weight.shape)} dimensions.")
+    #     if weight.shape[0] * weight.shape[1] % self.block_size != 0:
+    #         raise ValueError(
+    #             f"Weight with shape ({weight.shape[0]} x {weight.shape[1]}) "
+    #             f"is not dividable by block size {self.block_size}."
+    #         )
+
+    #     M, N = weight.shape
+    #     device = weight.device
+
+    #     # Flatten weight for block processing
+    #     weight = weight.flatten()  # (M*N, )
+    #     weight_block = weight.reshape(-1, self.block_size)  # (L, B), L = M * N / B
         
-        return dequantized
+    #     # Calculate scaling factors for blocks
+    #     if self.method == "normal":
+    #         weight_max = weight_block.abs().max(dim=-1)[0]  # (L, 1)
+    #     elif self.method == "uniform":
+    #         # Use more memory-efficient computation
+    #         with torch.no_grad():
+    #             # Calculate mean and std separately to avoid large temporary tensors
+    #             means = weight_block.mean(dim=-1)
+                
+    #             # Optional: Transfer mean to CPU to save GPU memory
+    #             means_cpu = means.cpu() if device.type == 'cuda' else means
+                
+    #             # Calculate standard deviation with reduced memory
+    #             stds = torch.zeros_like(means)
+    #             for i in range(weight_block.size(0)):
+    #                 # Process one block at a time
+    #                 centered = weight_block[i] - means[i]
+    #                 stds[i] = torch.sqrt(torch.mean(centered * centered))
+    #                 del centered  # Explicitly delete temporary tensor
+                
+    #             # Calculate max values for scaling
+    #             weight_max = means + num_std * stds
+    #             del means, stds  # Cleanup
+    #     else:
+    #         raise NotImplementedError("Method not supported yet.")
+        
+    #     # Reshape for broadcasting
+    #     weight_max = weight_max.unsqueeze(-1)
+    #     weight_divabs = torch.div(weight_block, weight_max)  # (L, B)
+    #     del weight_block  # Explicitly delete to free memory
+        
+    #     # Move scaling factors to CPU to save GPU memory during quantization
+    #     weight_max_cpu = weight_max.to("cpu")
+        
+    #     # Reshape for lookup table comparison
+    #     weight_divabs = weight_divabs.unsqueeze(-1)  # (L, B, 1)
+    #     L_reshaped = self.norm_lookup_table.reshape(1, -1)  # (1, 2**K)
+        
+    #     # Clear cache before large operation
+    #     if device.type == 'cuda':
+    #         torch.cuda.empty_cache()
+        
+    #     # Determine efficient block size based on quantization bits and GPU memory
+    #     if self.num_bits <= 2:
+    #         argmin_block_size = 1024  # Smaller blocks for very low bit quantization
+    #     elif self.num_bits <= 4:
+    #         argmin_block_size = 2048
+    #     else:
+    #         argmin_block_size = 4096
+        
+    #     # Find closest quantization indices
+    #     qweight = self.safe_subtract_argmin(weight_divabs, L_reshaped, argmin_block_size).to(self.device)
+        
+    #     # Clean up large tensors immediately
+    #     del weight_divabs
+    #     del L_reshaped
+    #     if device.type == 'cuda':
+    #         torch.cuda.empty_cache()
+        
+    #     # Pack bits efficiently
+    #     if self.num_bits < 8:
+    #         # Pack multiple k-bit into uint8
+    #         bits_per_byte = 8 // self.num_bits
+    #         qweight = qweight.reshape(-1, bits_per_byte)
+    #         qweight_pack = torch.zeros((M * N // bits_per_byte, 1), dtype=torch.uint8, device=device)
+            
+    #         # Use in-place operations for bit packing
+    #         for i in range(bits_per_byte):
+    #             shifted = qweight[:, i] << (i * self.num_bits)
+    #             qweight_pack[:, 0] |= shifted
+    #     elif self.num_bits == 8:
+    #         # For 8-bit, direct conversion
+    #         qweight_pack = qweight.byte().reshape(-1, 1)
+    #     else:
+    #         # For larger than 8 bits, use appropriate dtype
+    #         if self.num_bits == 16:
+    #             qweight_pack = qweight.short()
+    #         elif self.num_bits == 32:
+    #             qweight_pack = qweight.int()
+    #         else:
+    #             qweight_pack = qweight
+        
+    #     # Return packed weights, scaling factors, and original shape
+    #     return qweight_pack, weight_max_cpu.to(self.device), (M, N)
+
+    # def dequantize_block(self, qweight, weight_max, weight_shape):
+    #     # unpack weight
+    #     device = qweight.device
+    #     if self.num_bits < 8:
+    #         bits_per_byte = 8 // self.num_bits
+    #         weight = torch.zeros((qweight.shape[0], bits_per_byte), dtype=torch.float32, device=device)
+    #         qweight_temp = qweight.clone()  # Clone to avoid modifying original
+            
+    #         for i in range(bits_per_byte):
+    #             # Use bitwise AND instead of modulo - faster and more memory efficient
+    #             lookup_table_idx = (qweight_temp & (2**self.num_bits - 1)).long()
+    #             weight[:, i] = self.norm_lookup_table[lookup_table_idx].squeeze()
+    #             # Right shift in-place
+    #             qweight_temp >>= self.num_bits
+                
+    #             # Critical fix: delete the temporary tensor
+    #             del lookup_table_idx
+                
+    #         # Delete the temp copy after use
+    #         del qweight_temp
+    #     else:
+    #         # For 8-bit or greater quantization
+    #         lookup_table_idx = qweight.squeeze().long()
+    #         weight = self.norm_lookup_table[lookup_table_idx].reshape(-1, 1)
+    #         del lookup_table_idx  # Add this line to free memory
+
+    #     weight_block = weight.reshape(-1, self.block_size)
+    #     weight = weight_block * weight_max
+    #     weight = weight.reshape(weight_shape)
+
+    #     return weight
 
 def convert_linear_layer(
     model: nn.Module, 
