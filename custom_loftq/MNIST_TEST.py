@@ -108,6 +108,7 @@ def quantize_simple_cnn_model(model_to_quantize, model_args, quantize_final_fc_l
         excluded_modules=linear_excluded_modules,
         true_quantization=model_args.true_quantization
     )
+    print(model_to_quantize)
     return model_to_quantize
 
 # --- 5. Evaluation ---
@@ -137,11 +138,11 @@ if __name__ == '__main__':
     optimizer = optim.Adam(original_model_instance.parameters(), lr=0.001)
 
     # Train or load the original model
-    original_model_instance = train_model(original_model_instance, trainloader, criterion, optimizer, epochs=3, device=device, model_path=original_model_path)
+    # original_model_instance = train_model(original_model_instance, trainloader, criterion, optimizer, epochs=3, device=device, model_path=original_model_path)
     
-    print("\n--- Evaluating Original Model ---")
-    original_accuracy = evaluate_model(original_model_instance, testloader, device=device)
-    print(f"Original Model Accuracy: {original_accuracy:.2f} %")
+    # print("\n--- Evaluating Original Model ---")
+    # original_accuracy = evaluate_model(original_model_instance, testloader, device=device)
+    # print(f"Original Model Accuracy: {original_accuracy:.2f} %")
 
     # --- CSV Setup ---
     csv_file_path = 'loftq_cnn_experiment_results.csv'
@@ -187,7 +188,8 @@ if __name__ == '__main__':
                     loftq_args = MockModelArgs(
                         int_bit=bits,
                         reduced_rank=rank, # The convert_ functions should handle if rank > layer_dim
-                        quant_method=method
+                        quant_method=method,
+                        num_iter=5
                     )
 
                     # Important: Always start from a fresh copy of the original trained model
@@ -197,7 +199,7 @@ if __name__ == '__main__':
                         quantized_model = quantize_simple_cnn_model(
                             model_to_quantize,
                             loftq_args,
-                            quantize_final_fc_layer=final_quant_status
+                            quantize_final_fc_layer=final_quant_status,
                         )
 
                         quantized_model = train_model(quantized_model, trainloader, criterion, optimizer, epochs=3, device=device, model_path=original_model_path)

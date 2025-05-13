@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from accelerate.utils.memory import clear_device_cache
 # from scipy.stats import norm # Required for 'normal' method in BlockQuantizer
 
 # Define compute_device (ensure this is consistent with your setup)
@@ -257,19 +259,24 @@ class TrueQuantizedConv2d(nn.Module):
         # 1. Quantize W to get Q_W.
         # 2. Perform SVD on W - Q_W to get L, R.
         current_dtype = weight_2d.dtype
-        
-        # Q_1 = q_N(W)
-        qpack_base, scales_base, _ = self.quantizer.quantize_block(weight_2d)
-        dequantized_base_2d = self.quantizer.dequantize_block(qpack_base, scales_base, weight_2d.shape)
 
-        # Residual for SVD: W - Q_1
-        residual_2d = weight_2d - dequantized_base_2d
-        
-        # A_1, B_1 = SVD(W - Q_1)
-        # Here, L_factor corresponds to L (or A in AB^T), R_factor to R (or B^T in AB^T)
-        lora_L_2d, lora_R_2d = self._low_rank_decomposition(residual_2d, reduced_rank)
-        
-        return qpack_base, scales_base, lora_L_2d, lora_R_2d
+        weight_2d = weight_2d.to(device=compute_device, dtype=torch.float32)
+        residual_2d = weight_2d.clone()
+        for i in range(num_iter):
+            clear_device_cache()
+            # Q_1 = q_N(W)
+            qpack_base, scales_base, _ = self.quantizer.quantize_block(residual_2d)
+            dequantized_base_2d = self.quantizer.dequantize_block(qpack_base, scales_base, weight_2d.shape)
+
+            # Residual for SVD: W - Q_1
+            residual_2d = weight_2d - dequantized_base_2d
+            
+            # A_1, B_1 = SVD(W - Q_1)
+            # Here, L_factor corresponds to L (or A in AB^T), R_factor to R (or B^T in AB^T)
+            lora_L_2d, lora_R_2d = self._low_rank_decomposition(residual_2d, reduced_rank)
+            residual_2d = weight_2d - torch.mm(lora_L_2d, lora_R_2d)
+            print(torch.nn.functional.mse_loss(torch.mm(lora_L_2d, lora_R_2d), weight_2d, reduction="sum"))
+        return qpack_base, scales_base, lora_R_2d, lora_L_2d
 
     def quantize(self, original_conv_layer: nn.Conv2d):
         W_initial_4d = original_conv_layer.weight.data.clone()
@@ -278,7 +285,7 @@ class TrueQuantizedConv2d(nn.Module):
         # Reshape 4D kernel to 2D: (C_out, C_in_div_groups * kH * kW)
         W_initial_2d = W_initial_4d.reshape(C_out, -1)
 
-        qweight_pack_2d, weight_scales_2d, lora_L_2d, lora_R_2d = self._loftq(
+        qweight_pack_2d, weight_scales_2d, lora_R_2d, lora_L_2d = self._loftq(
             W_initial_2d, 
             self.reduced_rank, # This is the rank for the SVD of the (C_out, C_in_eff) matrix
             self.num_iters
@@ -368,6 +375,8 @@ class TrueQuantizedConv2d(nn.Module):
         
         original_4d_kernel_shape = tuple(self.kernel_shape_orig_buf.tolist())
         dequantized_kernel_4d = dequantized_kernel_2d.reshape(original_4d_kernel_shape)
+
+        print(self.lora_A.weight.data.mean())
         
         base_output = F.conv2d(
             x, 
