@@ -21,8 +21,8 @@ def get_gpu_mem(msg = ""):
     print(msg, end=" ")
     for i in range(0, torch.cuda.device_count()):
         free_mem, total_mem = torch.cuda.mem_get_info(i)
-        use_mem = ((total_mem - free_mem) / total_mem) / (1024 * 1024 * 1024)
-        print(f"GPU {i} memory: {use_mem}", end=", ")
+        use_mem = ((total_mem - free_mem) / total_mem)
+        print(f"GPU {i} memory: {use_mem}", end=", \n")
 
 class BaseLoftqLinear(nn.Module):
     def __init__(
