@@ -59,10 +59,10 @@ def get_mnist_loaders(batch_size=128):
     return trainloader, testloader
 
 def train_model(model, trainloader, criterion, optimizer, epochs=3, device=compute_device, model_path='simple_cnn_mnist_original.pth'):
-    if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        print(f"Loaded pre-trained original model weights from {model_path}.")
-        return model
+    # if os.path.exists(model_path):
+    #     model.load_state_dict(torch.load(model_path, map_location=device))
+    #     print(f"Loaded pre-trained original model weights from {model_path}.")
+    #     return model
 
     model.train()
     print(f"Starting training on {device} for {epochs} epochs...")
@@ -191,7 +191,7 @@ if __name__ == '__main__':
                     )
 
                     # Important: Always start from a fresh copy of the original trained model
-                    model_to_quantize = copy.deepcopy(original_model_instance).to(device)
+                    model_to_quantize = SimpleCNN().to(device)
                     
                     try:
                         quantized_model = quantize_simple_cnn_model(
@@ -199,6 +199,8 @@ if __name__ == '__main__':
                             loftq_args,
                             quantize_final_fc_layer=final_quant_status
                         )
+
+                        quantized_model = train_model(quantized_model, trainloader, criterion, optimizer, epochs=3, device=device, model_path=original_model_path)
                         
                         accuracy = evaluate_model(quantized_model, testloader, device=device)
                         
