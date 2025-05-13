@@ -1,6 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p swarm_h100
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --time=12:00:00
@@ -20,4 +21,6 @@ python run_loftq.py \
     --reduced_rank 32 \
     --num_iter 1 \
     --int_bit 8 \
+    --remove_unused_columns False \
+    --true_quantization \
     --from_saved

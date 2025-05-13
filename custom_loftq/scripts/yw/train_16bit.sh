@@ -1,6 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p swarm_h100
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --time=21:00:00
