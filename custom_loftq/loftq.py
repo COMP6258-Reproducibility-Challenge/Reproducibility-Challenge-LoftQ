@@ -371,116 +371,67 @@ class BlockQuantizer:
             return torch.zeros(0, dtype=idx_dtype, device='cpu')
 
     def quantize_block(self, weight, num_std=2.5):
-        """
-        Quantize a weight tensor using block-wise quantization.
-        
-        Args:
-            weight: The weight tensor to quantize
-            num_std: Number of standard deviations for uniform quantization scaling
-            
-        Returns:
-            Tuple of (quantized_weights, weight_max, weight_shape)
-        """
-        # Validate input shape
-        if len(weight.shape) != 2:
-            raise ValueError(f"Only support 2D matrix, but your input has {len(weight.shape)} dimensions.")
-        if weight.shape[0] * weight.shape[1] % self.block_size != 0:
-            raise ValueError(
-                f"Weight with shape ({weight.shape[0]} x {weight.shape[1]}) "
-                f"is not dividable by block size {self.block_size}."
-            )
+            # start_time = time.time()
+            if len(weight.shape) != 2:
+                raise ValueError(f"Only support 2D matrix, but your input has {len(weight.shape)} dimensions.")
+            if weight.shape[0] * weight.shape[1] % self.block_size != 0:
+                raise ValueError(
+                    f"Weight with shape ({weight.shape[0]} x {weight.shape[1]}) "
+                    f"is not dividable by block size {self.block_size}."
+                )
 
-        M, N = weight.shape
-        device = weight.device
+            M, N = weight.shape
+            device = weight.device
 
-        # Flatten weight for block processing
-        weight = weight.flatten()  # (M*N, )
-        weight_block = weight.reshape(-1, self.block_size)  # (L, B), L = M * N / B
-        
-        # Calculate scaling factors for blocks
-        if self.method == "normal":
-            weight_max = weight_block.abs().max(dim=-1)[0]  # (L, 1)
-        elif self.method == "uniform":
-            # Use more memory-efficient computation
-            with torch.no_grad():
-                # Calculate mean and std separately to avoid large temporary tensors
-                means = weight_block.mean(dim=-1)
-                
-                # Optional: Transfer mean to CPU to save GPU memory
-                means_cpu = means.cpu() if device.type == 'cuda' else means
-                
-                # Calculate standard deviation with reduced memory
-                stds = torch.zeros_like(means)
-                for i in range(weight_block.size(0)):
-                    # Process one block at a time
-                    centered = weight_block[i] - means[i]
-                    stds[i] = torch.sqrt(torch.mean(centered * centered))
-                    del centered  # Explicitly delete temporary tensor
-                
-                # Calculate max values for scaling
-                weight_max = means + num_std * stds
-                del means, stds  # Cleanup
-        else:
-            raise NotImplementedError("Method not supported yet.")
-        
-        # Reshape for broadcasting
-        weight_max = weight_max.unsqueeze(-1)
-        weight_divabs = torch.div(weight_block, weight_max)  # (L, B)
-        del weight_block  # Explicitly delete to free memory
-        
-        # Move scaling factors to CPU to save GPU memory during quantization
-        weight_max_cpu = weight_max.to("cpu")
-        
-        # Reshape for lookup table comparison
-        weight_divabs = weight_divabs.unsqueeze(-1)  # (L, B, 1)
-        L_reshaped = self.norm_lookup_table.reshape(1, -1)  # (1, 2**K)
-        
-        # Clear cache before large operation
-        if device.type == 'cuda':
-            torch.cuda.empty_cache()
-        
-        # Determine efficient block size based on quantization bits and GPU memory
-        if self.num_bits <= 2:
-            argmin_block_size = 1024  # Smaller blocks for very low bit quantization
-        elif self.num_bits <= 4:
-            argmin_block_size = 2048
-        else:
-            argmin_block_size = 4096
-        
-        # Find closest quantization indices
-        qweight = self.safe_subtract_argmin(weight_divabs, L_reshaped, argmin_block_size).to(self.device)
-        
-        # Clean up large tensors immediately
-        del weight_divabs
-        del L_reshaped
-        if device.type == 'cuda':
-            torch.cuda.empty_cache()
-        
-        # Pack bits efficiently
-        if self.num_bits < 8:
-            # Pack multiple k-bit into uint8
-            bits_per_byte = 8 // self.num_bits
-            qweight = qweight.reshape(-1, bits_per_byte)
-            qweight_pack = torch.zeros((M * N // bits_per_byte, 1), dtype=torch.uint8, device=device)
-            
-            # Use in-place operations for bit packing
-            for i in range(bits_per_byte):
-                shifted = qweight[:, i] << (i * self.num_bits)
-                qweight_pack[:, 0] |= shifted
-        elif self.num_bits == 8:
-            # For 8-bit, direct conversion
-            qweight_pack = qweight.byte().reshape(-1, 1)
-        else:
-            # For larger than 8 bits, use appropriate dtype
-            if self.num_bits == 16:
-                qweight_pack = qweight.short()
-            elif self.num_bits == 32:
-                qweight_pack = qweight.int()
+            # Quantization
+            weight = weight.flatten()  # (M*N, )
+            weight_block = weight.reshape(-1, self.block_size)  # (L, B), L = M * N / B
+            if self.method == "normal":
+                weight_max = weight_block.abs().max(dim=-1)[0]  # (L, 1)
+            elif self.method == "uniform":
+                weight_max = weight_block.mean(dim=-1) + num_std * weight_block.std(dim=-1)
             else:
-                qweight_pack = qweight
-        
-        # Return packed weights, scaling factors, and original shape
-        return qweight_pack, weight_max_cpu.to(self.device), (M, N)
+                raise NotImplementedError("Method not supported yet.")
+            weight_max = weight_max.unsqueeze(-1)
+            weight_divabs = weight_block / weight_max  # (L, B)
+            del weight_block
+            weight_max = weight_max.to("cpu")
+
+            weight_divabs = weight_divabs.unsqueeze(-1)  # (L, B, 1)
+            L_reshaped = self.norm_lookup_table.reshape(1, -1)  # (1, 2**K)
+            # print(f"Tensor shapes: (L = {L_reshaped.shape}, weight = {weight_divabs.shape})")
+            # print("performing safe broadcasting ... ")
+            qweight = BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128).to(self.device)
+            # print(qweight.shape)
+            # print("Done\n")
+            del weight_divabs
+            del L_reshaped
+
+            # Convert bits
+            if self.num_bits < 8:
+                # Pack multiple k-bit into uint8
+                bits_per_byte = 8 // self.num_bits
+                qweight = qweight.reshape(-1, bits_per_byte)
+                qweight_pack = torch.zeros((M * N // bits_per_byte, 1), dtype=torch.uint8, device=device)
+                
+                for i in range(bits_per_byte):
+                    qweight[:, i] = qweight[:, i] << i * self.num_bits
+                    qweight_pack[:, 0] |= qweight[:, i]
+            elif self.num_bits == 8:
+                # For 8-bit, direct conversion
+                qweight_pack = qweight.byte().reshape(-1, 1)
+            else:
+                # For larger than 8 bits, use appropriate dtype
+                if self.num_bits == 16:
+                    qweight_pack = qweight.short()
+                elif self.num_bits == 32:
+                    qweight_pack = qweight.int()
+                else:
+                    qweight_pack = qweight
+
+            # end_time = time.time()
+            # print(f"Time used = {(end_time - start_time) / 60} minutes")
+            return qweight_pack, weight_max.to(self.device), (M, N)  # weight.shape
 
     def dequantize_block(self, qweight, weight_max, weight_shape):
         """
