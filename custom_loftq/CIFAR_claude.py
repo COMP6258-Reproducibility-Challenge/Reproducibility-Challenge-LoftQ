@@ -125,8 +125,12 @@ def train_model(accelerator, model, trainloader, criterion, optimizer, epochs=20
         epoch_accuracy = 100. * correct / total
         accelerator.print(f"Epoch {epoch + 1} finished. Training Accuracy: {epoch_accuracy:.2f}%")
 
+        # Pass metrics to scheduler if it's ReduceLROnPlateau
         if scheduler:
-            scheduler.step()
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(epoch_accuracy)
+            else:
+                scheduler.step()
 
     accelerator.print('Finished Training')
     
