@@ -88,30 +88,51 @@ def max_positional_embeddings(model, model_args, data_args):
     
     return model
 
-def prepare_model(model, tokenizer, data_args):
+def prepare_model(model, tokenizer, data_args, model_args):
     model = resize_token_embeddings(model, tokenizer)
     model = set_start_token(model, tokenizer, data_args)
-    model = max_positional_embeddings(model, tokenizer, data_args)
+    model = max_positional_embeddings(model, model_args, data_args)
     return model
 
-def compute_summarisation_metrics(eval_preds, tokenizer, metric):
-        preds, labels = eval_preds
-        if isinstance(preds, tuple):
-            preds = preds[0]
-        # Replace -100s used for padding as we can't decode them
-        preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
-        decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
-        labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+def compute_metrics_summarization(eval_preds, tokenizer, metric):
+    preds, labels = eval_preds
+    # if your model returns (logits, _), grab the logits
+    if isinstance(preds, tuple):
+        preds = preds[0]
 
-        # Some simple post-processing
-        decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+    # replace -100 in labels (padding) so we can decode them
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
 
-        result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
-        result = {k: round(v * 100, 4) for k, v in result.items()}
-        prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
-        result["gen_len"] = np.mean(prediction_lens)
-        return result
+    # decode predictions and references
+    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+    # simple post-processing: strip whitespace
+    decoded_preds = [pred.strip() for pred in decoded_preds]
+    decoded_labels = [lbl.strip() for lbl in decoded_labels]
+
+    # compute ROUGE (returns floats for each rouge type)
+    rouge_out = metric.compute(
+        predictions=decoded_preds,
+        references=decoded_labels,
+        rouge_types=["rouge1", "rouge2", "rougeL"],
+        use_stemmer=True,
+    )
+
+    # round & convert to percentage
+    result = {
+        rouge_type: round(rouge_out[rouge_type] * 100, 4)
+        for rouge_type in ["rouge1", "rouge2", "rougeL"]
+    }
+
+    # average generation length (in tokens)
+    gen_lens = [
+        np.count_nonzero(pred != tokenizer.pad_token_id)
+        for pred in preds
+    ]
+    result["gen_len"] = float(np.mean(gen_lens))
+
+    return result
 
 
 def create_reduced_dataset(dataset, labels, num_examples=1000, seed=42):
@@ -175,7 +196,7 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
     
     load_nltk()
     
-    model = prepare_model(model, tokenizer, data_args)
+    model = prepare_model(model, tokenizer, data_args, model_args)
     
     prefix = data_args.source_prefix if data_args.source_prefix is not None else ""
     
@@ -193,12 +214,12 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
                                         summary_column=summary_column, data_args=data_args, max_target_length=max_target_length, padding=padding)
     
     metric = evaluate.load("rouge")
-    compute_metrics = partial(compute_summarisation_metrics, metric, tokenizer, data_args)
+    compute_metrics = partial(compute_metrics_summarization, metric=metric, tokenizer=tokenizer)
 
     train_dataset = raw_datasets["train"]
     eval_dataset = raw_datasets["validation"]
     if training_args.train_small:
-        max_train_samples = min(len(train_dataset), 100)
+        max_train_samples = min(len(train_dataset), 10)
         train_dataset = train_dataset.select(range(max_train_samples))
         max_eval_samples = min(len(eval_dataset), 10)
         eval_dataset = eval_dataset.select(range(max_eval_samples))
@@ -224,8 +245,17 @@ def train(model, tokenizer, model_args, data_args, training_args, raw_datasets):
         label_pad_token_id=label_pad_token_id,
         pad_to_multiple_of=8 if training_args.fp16 else None,
     )
+    
+    training_args.generation_max_length = (
+        training_args.generation_max_length
+        if training_args.generation_max_length is not None
+        else data_args.val_max_target_length
+    )
+    training_args.generation_num_beams = (
+        data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
+    )
 
-    trainer = Seq2SeqTrainer(
+    trainer = LoFTQSequence2SequenceTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,

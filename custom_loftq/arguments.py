@@ -77,6 +77,7 @@ class ModelArguments:
         default=False,
         metadata={"help": "When loading a quantized model skip argument checks"}
     )
+    resize_position_embeddings: bool = field(default=True)
 
 @dataclass
 class DataArguments:
@@ -162,6 +163,21 @@ class DataArguments:
             )
         },
     )
+    num_beams: Optional[int] = field(
+        default=6,
+        metadata={
+            "help": (
+                "Number of beams to use for evaluation. This argument will be passed to ``model.generate``, "
+                "which is used during ``evaluate`` and ``predict``."
+            )
+        },
+    )
+    max_train_samples: Optional[int] = field(
+        default=10,
+    )
+    max_eval_samples: Optional[int] = field(
+        default=100,
+    )
     
 @dataclass
 class TrainingArguments(TrainingArguments):
@@ -184,3 +200,5 @@ class TrainingArguments(TrainingArguments):
         metadata={"help": "Skip training"},
     )
     generation_config: Optional[object] = field(default=None)
+    generation_max_length: Optional[object] = field(default=None)
+    predict_with_generate: bool = field(default=True)
