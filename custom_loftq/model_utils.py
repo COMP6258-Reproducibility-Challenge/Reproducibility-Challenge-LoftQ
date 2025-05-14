@@ -24,6 +24,17 @@ from arguments import ModelArguments
 def pretty_print_model_args(model_args: ModelArguments):
     return f"Model name: {model_args.model_name_or_path}, Method: {model_args.quant_method}, Rank: {model_args.reduced_rank}, Bits: {model_args.int_bit}, True quantize: {model_args.true_quantization}"
 
+def estimate_model_size(original_model, model):
+    original_size = sum(p.numel() * p.element_size() for p in original_model.parameters()) / (1024**2)
+    print(f"Original Conv2d size: {original_size:.4f} MB")
+    
+    quantized_params = sum(p.numel() * p.element_size() for p in model.parameters()) / (1024**2)
+    quantized_buffers = sum(b.numel() * b.element_size() for b in model.buffers()) / (1024**2)
+    quantized_size = quantized_params + quantized_buffers
+    print(f"Quantized Conv2d size: {quantized_size:.4f} MB")
+    print(f"Parameters: {quantized_params:.4f} MB, Buffers: {quantized_buffers:.4f} MB")
+    print(f"Compression ratio: {original_size/quantized_size:.2f}x")
+
 def count_trainable_parameters(model: Union[PreTrainedModel, torch.nn.Module]):
     """Count trainable parameters in a model"""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

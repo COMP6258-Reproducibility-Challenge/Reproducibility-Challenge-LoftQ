@@ -13,7 +13,7 @@ import time
 from loftq_cnn import TrueQuantizedConv2d, compute_device
 from model_utils import convert_true_quant_conv_layer
 from loftq import TrueQuantizedLinear
-from model_utils import convert_linear_layer
+from model_utils import convert_linear_layer, estimate_model_size
 
 # --- 1. Define the ResNet50 Model (adapted for CIFAR-10) ---
 def get_resnet50_for_cifar10(num_classes=10):
@@ -40,7 +40,7 @@ def get_resnet50_for_cifar10(num_classes=10):
 
 # --- Mock Model Arguments for LoftQ ---
 class MockModelArgs:
-    def __init__(self, int_bit=4, reduced_rank=16, num_iter=1, quant_method="normal", true_quantization=True):
+    def __init__(self, int_bit=4, reduced_rank=16, num_iter=5, quant_method="normal", true_quantization=True):
         self.int_bit = int_bit
         self.reduced_rank = reduced_rank
         self.num_iter = num_iter
@@ -74,13 +74,13 @@ def get_cifar10_loaders(train_batch_size=128, test_batch_size=100):
 
 
 def train_model(model, trainloader, criterion, optimizer, epochs=20, device=compute_device, model_path='resnet50_cifar10_original.pth', scheduler=None):
-    if os.path.exists(model_path):
-        try:
-            model.load_state_dict(torch.load(model_path, map_location=device))
-            print(f"Loaded pre-trained original model weights from {model_path}.")
-            return model
-        except Exception as e:
-            print(f"Could not load model from {model_path}: {e}. Training from scratch.")
+    # if os.path.exists(model_path):
+    #     try:
+    #         model.load_state_dict(torch.load(model_path, map_location=device))
+    #         print(f"Loaded pre-trained original model weights from {model_path}.")
+    #         return model
+    #     except Exception as e:
+    #         print(f"Could not load model from {model_path}: {e}. Training from scratch.")
 
     model.train()
     print(f"Starting training on {device} for {epochs} epochs...")
@@ -179,8 +179,8 @@ def evaluate_model(model, testloader, device=compute_device):
 # --- 6. Main Experiment Flow ---
 if __name__ == '__main__':
     device = compute_device
-    trainloader, testloader = get_cifar10_loaders(train_batch_size=256, test_batch_size=100) # Smaller batch for ResNet if memory is an issue
-    
+    trainloader, testloader = get_cifar10_loaders(train_batch_size=16, test_batch_size=100) # Smaller batch for ResNet if memory is an issue
+    print("\n--- Loaded dataset ---")
     original_model_path = 'resnet50_cifar10_original.pth' # Changed model path
     original_model_instance = get_resnet50_for_cifar10().to(device) # Use ResNet50
     criterion = nn.CrossEntropyLoss()
@@ -190,11 +190,11 @@ if __name__ == '__main__':
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer) # Train for more epochs
 
     # Train or load the original model
-    original_model_instance = train_model(original_model_instance, trainloader, criterion, optimizer, epochs=300, device=device, model_path=original_model_path, scheduler=scheduler) # Increased epochs
+    # original_model_instance = train_model(original_model_instance, trainloader, criterion, optimizer, epochs=3, device=device, model_path=original_model_path, scheduler=scheduler) # Increased epochs
     
-    print("\n--- Evaluating Original Model ---")
-    original_accuracy = evaluate_model(original_model_instance, testloader, device=device)
-    print(f"Original Model Accuracy (ResNet50 on CIFAR-10): {original_accuracy:.2f} %")
+    # print("\n--- Evaluating Original Model ---")
+    # original_accuracy = evaluate_model(original_model_instance, testloader, device=device)
+    # print(f"Original Model Accuracy (ResNet50 on CIFAR-10): {original_accuracy:.2f} %")
 
     # --- CSV Setup ---
     csv_file_path = 'loftq_resnet50_cifar10_results.csv' # Changed CSV name
@@ -235,8 +235,13 @@ if __name__ == '__main__':
                             loftq_args,
                             quantize_final_fc_layer=final_quant_status
                         )
+                        
+                        estimate_model_size(get_resnet50_for_cifar10(), quantized_model)
 
-                        quantized_model = train_model(quantized_model, trainloader, criterion, optimizer, epochs=300, device=device, model_path=original_model_path, scheduler=scheduler) # Increased epochs
+                        optimizer = optim.SGD(quantized_model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4, nesterov=True)
+                        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+                        
+                        quantized_model = train_model(quantized_model, trainloader, criterion, optimizer, epochs=3, device=device, scheduler=scheduler) # Increased epochs
                         
                         accuracy = evaluate_model(quantized_model, testloader, device=device)
                         

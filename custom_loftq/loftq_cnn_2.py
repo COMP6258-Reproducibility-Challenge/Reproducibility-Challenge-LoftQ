@@ -1,6 +1,9 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import utils
 
 from accelerate.utils.memory import clear_device_cache
 # from scipy.stats import norm # Required for 'normal' method in BlockQuantizer
@@ -74,105 +77,288 @@ class _BlockQuantizer: # Renamed to avoid potential clash if user has BlockQuant
         return values.sort().values
 
 
-    def quantize_block(self, weight_2d):
-        if not isinstance(weight_2d, torch.Tensor):
-            raise TypeError("Input weight must be a PyTorch tensor.")
-        if weight_2d.dim() != 2:
-            raise ValueError(f"Input weight must be 2D. Got {weight_2d.dim()} dimensions.")
-        if weight_2d.numel() == 0:
-            return torch.empty(0, dtype=torch.uint8, device=self.device), \
-                   torch.empty(0, dtype=weight_2d.dtype, device=self.device), \
-                   weight_2d.shape
+    def quantize_block(self, weight, num_std=2.5):
+        original_shape = weight.shape
+        device = weight.device
 
-        original_shape = weight_2d.shape
-        weight_flat = weight_2d.flatten()
-        
-        num_blocks = (weight_flat.numel() + self.block_size - 1) // self.block_size
-        padded_size = num_blocks * self.block_size
-        padding_needed = padded_size - weight_flat.numel()
-        
-        if padding_needed > 0:
-            weight_flat_padded = F.pad(weight_flat, (0, padding_needed))
+        # Handle convolution weights (N, C, H, W) or (N, C, D, H, W)
+        if len(original_shape) > 2:
+            # Flatten the conv weights to a 2D matrix
+            # For a conv weight of shape (out_channels, in_channels, h, w)
+            # Reshape to (out_channels, in_channels*h*w)
+            M = original_shape[0]  # out_channels
+            N = np.prod(original_shape[1:]).item()  # in_channels*h*w
+            weight = weight.reshape(M, N)
         else:
-            weight_flat_padded = weight_flat
+            M, N = original_shape
 
-        weight_blocks_padded = weight_flat_padded.reshape(num_blocks, self.block_size)
-
+        # Calculate padding needed to make the matrix divisible by block_size
+        total_elements = M * N
+        padding_elements = 0
+        if total_elements % self.block_size != 0:
+            padding_elements = self.block_size - (total_elements % self.block_size)
+            
+            # For 2D weights, add padding columns
+            padding_cols = (padding_elements + M - 1) // M  # Ceiling division
+            padded_weight = torch.zeros(M, N + padding_cols, device=device)
+            padded_weight[:, :N] = weight
+            weight = padded_weight
+            
+            # Update dimensions after padding
+            M, N = weight.shape
+        
+        # Continue with your existing quantization logic
+        weight = weight.flatten()  # (M*N, )
+        weight_block = weight.reshape(-1, self.block_size)  # (L, B), L = M * N / B
         if self.method == "normal":
-            block_abs_max = weight_blocks_padded.abs().max(dim=-1, keepdim=True)[0]
-            scales = torch.where(block_abs_max == 0, torch.tensor(1.0, device=self.device, dtype=block_abs_max.dtype), block_abs_max)
+            weight_max = weight_block.abs().max(dim=-1)[0]  # (L, 1)
         elif self.method == "uniform":
-            block_min = weight_blocks_padded.min(dim=-1, keepdim=True)[0]
-            block_max = weight_blocks_padded.max(dim=-1, keepdim=True)[0]
-            scales = torch.maximum(block_min.abs(), block_max.abs())
-            scales = torch.where(scales == 0, torch.tensor(1.0, device=self.device, dtype=scales.dtype), scales)
+            weight_max = weight_block.mean(dim=-1) + num_std * weight_block.std(dim=-1)
         else:
             raise NotImplementedError("Method not supported yet.")
+        weight_max = weight_max.unsqueeze(-1)
+        weight_divabs = weight_block / weight_max  # (L, B)
+        del weight_block
+        weight_max = weight_max.to("cpu")
 
-        scaled_weights = weight_blocks_padded / scales
+        weight_divabs = weight_divabs.unsqueeze(-1)  # (L, B, 1)
+        L_reshaped = self.norm_lookup_table.reshape(1, -1)  # (1, 2**K)
         
-        # Ensure norm_lookup_table is on the same device
-        self.norm_lookup_table = self.norm_lookup_table.to(scaled_weights.device)
+        qweight = _BlockQuantizer.safe_subtract_argmin(weight_divabs, L_reshaped, 128).to(self.device)
+        
+        del weight_divabs
+        del L_reshaped
 
-        qweight_indices = torch.argmin(torch.abs(scaled_weights.unsqueeze(-1) - self.norm_lookup_table.view(1, 1, -1)), dim=-1)
-        qweight_indices_flat = qweight_indices.flatten()
-
+        # Convert bits
         if self.num_bits < 8:
+            # Pack multiple k-bit into uint8
             bits_per_byte = 8 // self.num_bits
-            num_packed_elements = (qweight_indices_flat.numel() + bits_per_byte -1) // bits_per_byte
-            packing_padding = num_packed_elements * bits_per_byte - qweight_indices_flat.numel()
-            if packing_padding > 0:
-                qweight_indices_flat = F.pad(qweight_indices_flat, (0, packing_padding))
-            qweight_reshaped = qweight_indices_flat.reshape(-1, bits_per_byte)
-            qweight_pack = torch.zeros((qweight_reshaped.shape[0], 1), dtype=torch.uint8, device=self.device)
-            for i in range(bits_per_byte):
-                qweight_pack[:, 0] |= qweight_reshaped[:, i].to(torch.uint8) << (i * self.num_bits)
-        elif self.num_bits == 8:
-            qweight_pack = qweight_indices_flat.to(torch.uint8).unsqueeze(-1)
-        else:
-            raise NotImplementedError("num_bits > 8 not directly supported for packing into uint8.")
-        return qweight_pack, scales.squeeze(-1), original_shape
-
-
-    def dequantize_block(self, qweight_pack, scales, target_shape):
-        if qweight_pack.numel() == 0:
-            return torch.empty(target_shape, dtype=scales.dtype, device=qweight_pack.device)
-
-        self.norm_lookup_table = self.norm_lookup_table.to(qweight_pack.device) # Ensure on same device
-        scales = scales.to(qweight_pack.device)
-
-
-        if self.num_bits < 8:
-            bits_per_byte = 8 // self.num_bits
-            mask = (1 << self.num_bits) - 1
-            unpacked_indices_list = []
-            for i in range(bits_per_byte):
-                shift = i * self.num_bits
-                indices = (qweight_pack.squeeze(-1) >> shift) & mask
-                unpacked_indices_list.append(indices.unsqueeze(-1)) # Keep as column
+            qweight = qweight.reshape(-1, bits_per_byte)
+            qweight_pack = torch.zeros((M * N // bits_per_byte, 1), dtype=torch.uint8, device=device)
             
-            qweight_indices_flat = torch.cat(unpacked_indices_list, dim=-1).view(-1).long()
+            for i in range(bits_per_byte):
+                qweight[:, i] = qweight[:, i] << i * self.num_bits
+                qweight_pack[:, 0] |= qweight[:, i]
         elif self.num_bits == 8:
-            qweight_indices_flat = qweight_pack.squeeze(-1).long()
+            # For 8-bit, direct conversion
+            qweight_pack = qweight.byte().reshape(-1, 1)
         else:
-            raise NotImplementedError("num_bits > 8 not supported for unpacking from uint8.")
+            # For larger than 8 bits, use appropriate dtype
+            if self.num_bits == 16:
+                qweight_pack = qweight.short()
+            elif self.num_bits == 32:
+                qweight_pack = qweight.int()
+            else:
+                qweight_pack = qweight
+                
+        return qweight_pack, weight_max.to(self.device), original_shape, padding_elements
+                
+    def dequantize_block(self, qweight, weight_max, original_shape, padding_elements=0):
+        # unpack weight
+        device = qweight.device
+        if self.num_bits < 8:
+            bits_per_byte = 8 // self.num_bits
+            weight = torch.zeros((qweight.shape[0], bits_per_byte), dtype=torch.float32, device=device)
+            for i in range(bits_per_byte):
+                lookup_table_idx = qweight.to(torch.long) % 2**self.num_bits
+                weight[:, i] = self.norm_lookup_table[lookup_table_idx].squeeze()
+                qweight = qweight >> self.num_bits
+        else:
+            lookup_table_idx = qweight.squeeze().long()
+            weight = self.norm_lookup_table[lookup_table_idx].reshape(-1, 1)
+
+        weight_block = weight.reshape(-1, self.block_size)
+        weight = weight_block * weight_max
         
-        dequantized_flat_padded_normalized = self.norm_lookup_table[qweight_indices_flat]
+        # Reshape to 2D first
+        if len(original_shape) > 2:
+            M = original_shape[0]
+            N = np.prod(original_shape[1:]).item()
+        else:
+            M, N = original_shape
         
-        num_blocks_scaled = scales.shape[0]
-        block_size_used = dequantized_flat_padded_normalized.numel() // num_blocks_scaled
+        # Handle padding if present
+        if padding_elements > 0:
+            # Calculate what the padded dimensions would have been
+            total_padded_elements = M * N + padding_elements
+            
+            # First reshape to the padded 2D shape
+            weight_2d_padded = weight.reshape(M, total_padded_elements // M)
+            
+            # Then take only the original N columns
+            weight_2d = weight_2d_padded[:, :N]
+            
+            # Reshape to original dimensions
+            if len(original_shape) > 2:
+                weight = weight_2d.reshape(original_shape)
+            else:
+                weight = weight_2d
+        else:
+            # No padding, just reshape to original shape
+            weight = weight.reshape(original_shape)
+
+        return weight
+
+
+    # def quantize_block(self, weight_2d):
+    #     if not isinstance(weight_2d, torch.Tensor):
+    #         raise TypeError("Input weight must be a PyTorch tensor.")
+    #     if weight_2d.dim() != 2:
+    #         raise ValueError(f"Input weight must be 2D. Got {weight_2d.dim()} dimensions.")
+    #     if weight_2d.numel() == 0:
+    #         return torch.empty(0, dtype=torch.uint8, device=self.device), \
+    #                torch.empty(0, dtype=weight_2d.dtype, device=self.device), \
+    #                weight_2d.shape
+
+    #     original_shape = weight_2d.shape
+    #     weight_flat = weight_2d.flatten()
         
-        dequantized_blocks_normalized = dequantized_flat_padded_normalized.reshape(num_blocks_scaled, block_size_used)
+    #     num_blocks = (weight_flat.numel() + self.block_size - 1) // self.block_size
+    #     padded_size = num_blocks * self.block_size
+    #     padding_needed = padded_size - weight_flat.numel()
         
-        scaled_blocks = dequantized_blocks_normalized * scales.unsqueeze(-1)
+    #     if padding_needed > 0:
+    #         weight_flat_padded = F.pad(weight_flat, (0, padding_needed))
+    #     else:
+    #         weight_flat_padded = weight_flat
+
+    #     weight_blocks_padded = weight_flat_padded.reshape(num_blocks, self.block_size)
+
+    #     if self.method == "normal":
+    #         block_abs_max = weight_blocks_padded.abs().max(dim=-1, keepdim=True)[0]
+    #         scales = torch.where(block_abs_max == 0, torch.tensor(1.0, device=self.device, dtype=block_abs_max.dtype), block_abs_max)
+    #     elif self.method == "uniform":
+    #         block_min = weight_blocks_padded.min(dim=-1, keepdim=True)[0]
+    #         block_max = weight_blocks_padded.max(dim=-1, keepdim=True)[0]
+    #         scales = torch.maximum(block_min.abs(), block_max.abs())
+    #         scales = torch.where(scales == 0, torch.tensor(1.0, device=self.device, dtype=scales.dtype), scales)
+    #     else:
+    #         raise NotImplementedError("Method not supported yet.")
+
+    #     scaled_weights = weight_blocks_padded / scales
         
-        scaled_flat_padded = scaled_blocks.view(-1)
-        if not isinstance(target_shape, tuple) or len(target_shape) != 2:
-            raise ValueError(f"dequantize_block expected target_shape to be a 2-element tuple, but got {target_shape}")
-        original_numel = target_shape[0] * target_shape[1]
-        dequantized_flat = scaled_flat_padded[:original_numel]
+    #     # Ensure norm_lookup_table is on the same device
+    #     self.norm_lookup_table = self.norm_lookup_table.to(scaled_weights.device)
+
+    #     qweight_indices = torch.argmin(torch.abs(scaled_weights.unsqueeze(-1) - self.norm_lookup_table.view(1, 1, -1)), dim=-1)
+    #     qweight_indices_flat = qweight_indices.flatten()
+
+    #     if self.num_bits < 8:
+    #         bits_per_byte = 8 // self.num_bits
+    #         num_packed_elements = (qweight_indices_flat.numel() + bits_per_byte -1) // bits_per_byte
+    #         packing_padding = num_packed_elements * bits_per_byte - qweight_indices_flat.numel()
+    #         if packing_padding > 0:
+    #             qweight_indices_flat = F.pad(qweight_indices_flat, (0, packing_padding))
+    #         qweight_reshaped = qweight_indices_flat.reshape(-1, bits_per_byte)
+    #         qweight_pack = torch.zeros((qweight_reshaped.shape[0], 1), dtype=torch.uint8, device=self.device)
+    #         for i in range(bits_per_byte):
+    #             qweight_pack[:, 0] |= qweight_reshaped[:, i].to(torch.uint8) << (i * self.num_bits)
+    #     elif self.num_bits == 8:
+    #         qweight_pack = qweight_indices_flat.to(torch.uint8).unsqueeze(-1)
+    #     else:
+    #         raise NotImplementedError("num_bits > 8 not directly supported for packing into uint8.")
+    #     return qweight_pack, scales.squeeze(-1), original_shape
+
+
+    # def dequantize_block(self, qweight_pack, scales, target_shape):
+    #     if qweight_pack.numel() == 0:
+    #         return torch.empty(target_shape, dtype=scales.dtype, device=qweight_pack.device)
+
+    #     self.norm_lookup_table = self.norm_lookup_table.to(qweight_pack.device) # Ensure on same device
+    #     scales = scales.to(qweight_pack.device)
+
+
+    #     if self.num_bits < 8:
+    #         bits_per_byte = 8 // self.num_bits
+    #         mask = (1 << self.num_bits) - 1
+    #         unpacked_indices_list = []
+    #         for i in range(bits_per_byte):
+    #             shift = i * self.num_bits
+    #             indices = (qweight_pack.squeeze(-1) >> shift) & mask
+    #             unpacked_indices_list.append(indices.unsqueeze(-1)) # Keep as column
+            
+    #         qweight_indices_flat = torch.cat(unpacked_indices_list, dim=-1).view(-1).long()
+    #     elif self.num_bits == 8:
+    #         qweight_indices_flat = qweight_pack.squeeze(-1).long()
+    #     else:
+    #         raise NotImplementedError("num_bits > 8 not supported for unpacking from uint8.")
         
-        return dequantized_flat.reshape(target_shape)
+    #     dequantized_flat_padded_normalized = self.norm_lookup_table[qweight_indices_flat]
+        
+    #     num_blocks_scaled = scales.shape[0]
+    #     block_size_used = dequantized_flat_padded_normalized.numel() // num_blocks_scaled
+        
+    #     dequantized_blocks_normalized = dequantized_flat_padded_normalized.reshape(num_blocks_scaled, block_size_used)
+        
+    #     scaled_blocks = dequantized_blocks_normalized * scales.unsqueeze(-1)
+        
+    #     scaled_flat_padded = scaled_blocks.view(-1)
+    #     if not isinstance(target_shape, tuple) or len(target_shape) != 2:
+    #         raise ValueError(f"dequantize_block expected target_shape to be a 2-element tuple, but got {target_shape}")
+    #     original_numel = target_shape[0] * target_shape[1]
+    #     dequantized_flat = scaled_flat_padded[:original_numel]
+        
+    #     return dequantized_flat.reshape(target_shape)
+    
+    @staticmethod
+    def safe_subtract_argmin(a: torch.Tensor, b: torch.Tensor, block_size: int = 4096) -> torch.Tensor:
+        """
+        Perform memory-efficient version of the opearation argmin(abs(A - B)), chunking both A and B if needed, and
+        storing the result on the CPU to minimize GPU memory usage. Note: if safe_broadcast_subtract() takes too long
+        to compute, you can increase the block size to allow for more usage of GPU; if safe_broadcast_subtract() fails
+        with CUDA out of memory, you can decrease the block size.
+
+        Parameters
+        ----------
+        a : torch.Tensor (on CUDA)
+            Left-hand tensor of subtraction. Must be at least 1D.
+        b : torch.Tensor (on CUDA)
+            Right-hand tensor. Must be broadcastable to A.
+        block_size : int
+            Max block size along the largest dimension. Default: 4096.
+        """
+        # Ensure A is always bigger than b
+        if a.numel() < b.numel():
+            return _BlockQuantizer.safe_subtract_argmin(-b, -a, block_size)
+
+        # dimension with max number of elements in A (in reverse order)
+        # Number of elements in dimension max_dim_A
+        max_dim_A, max_num_A = utils.max_dim(a)
+
+        # dimension with max number of elements in B (in reverse order)
+        # Number of elements in dimension max_dim_B
+        max_dim_B, max_num_B = utils.max_dim(b)
+
+        # List that stores the argmin blocks
+        result_list = []
+
+        for start in range(0, max_num_A, block_size):
+            if a.numel() == 1:
+                a_chunk = a.item()
+            elif a.numel() == 0:
+                break
+            else:
+                a_chunk = utils.index_dim(a, max_dim_A, start, block_size)
+
+            if b.numel() == 1:
+                b_chunk = b.item()
+            elif b.numel() == 0:
+                break
+            elif max_dim_B != max_dim_A:
+                b_chunk = b
+            elif max_dim_B == max_dim_A and (len(b.shape) < len(a.shape) or b.shape[max_dim_A] == 1):
+                b_chunk = b
+            else:
+                b_chunk = utils.index_dim(b, max_dim_B, start, block_size)
+
+            # Subtract, compute abs(), compute argmin(), and move to CPU
+            temp = torch.argmin(torch.abs(a_chunk - b_chunk), dim=-1, keepdim=True).to("cpu")
+            result_list.append(temp)
+
+        if len(result_list) == 0:
+            return torch.zeros(0)
+
+        return torch.squeeze(torch.cat(result_list, dim=max_dim_A))
 
 class TrueQuantizedConv2d(nn.Module):
     def __init__(
@@ -247,6 +433,8 @@ class TrueQuantizedConv2d(nn.Module):
             device=compute_device,
             method=quantization_method,
         )
+        
+        self.register_buffer('padding_elements', torch.tensor([0], dtype=torch.long))
 
     def _low_rank_decomposition(self, weight_2d: torch.Tensor, reduced_rank: int):
         U, S, Vh = torch.linalg.svd(weight_2d.to(torch.float32), full_matrices=False) # SVD on float32
@@ -255,9 +443,6 @@ class TrueQuantizedConv2d(nn.Module):
         return L_factor.to(weight_2d.dtype), R_factor.to(weight_2d.dtype)
 
     def _loftq(self, weight_2d: torch.Tensor, reduced_rank: int, num_iter: int):
-        # Simplified LoftQ for T=1 (num_iter=1)
-        # 1. Quantize W to get Q_W.
-        # 2. Perform SVD on W - Q_W to get L, R.
         current_dtype = weight_2d.dtype
 
         weight_2d = weight_2d.to(device=compute_device, dtype=torch.float32)
@@ -265,17 +450,17 @@ class TrueQuantizedConv2d(nn.Module):
         for i in range(num_iter):
             clear_device_cache()
             # Q_1 = q_N(W)
-            qpack_base, scales_base, _ = self.quantizer.quantize_block(residual_2d)
-            dequantized_base_2d = self.quantizer.dequantize_block(qpack_base, scales_base, weight_2d.shape)
+            qpack_base, scales_base, _, padding_elements = self.quantizer.quantize_block(residual_2d)
+            dequantized_base_2d = self.quantizer.dequantize_block(qpack_base, scales_base, weight_2d.shape, padding_elements)
 
             # Residual for SVD: W - Q_1
             residual_2d = weight_2d - dequantized_base_2d
             
             # A_1, B_1 = SVD(W - Q_1)
-            # Here, L_factor corresponds to L (or A in AB^T), R_factor to R (or B^T in AB^T)
             lora_L_2d, lora_R_2d = self._low_rank_decomposition(residual_2d, reduced_rank)
             residual_2d = weight_2d - torch.mm(lora_L_2d, lora_R_2d)
-        return qpack_base, scales_base, lora_R_2d, lora_L_2d
+            
+        return qpack_base, scales_base, lora_R_2d, lora_L_2d, padding_elements
 
     def quantize(self, original_conv_layer: nn.Conv2d):
         W_initial_4d = original_conv_layer.weight.data.clone()
@@ -284,18 +469,17 @@ class TrueQuantizedConv2d(nn.Module):
         # Reshape 4D kernel to 2D: (C_out, C_in_div_groups * kH * kW)
         W_initial_2d = W_initial_4d.reshape(C_out, -1)
 
-        qweight_pack_2d, weight_scales_2d, lora_R_2d, lora_L_2d = self._loftq(
+        qweight_pack_2d, weight_scales_2d, lora_R_2d, lora_L_2d, padding_elements = self._loftq(
             W_initial_2d, 
-            self.reduced_rank, # This is the rank for the SVD of the (C_out, C_in_eff) matrix
+            self.reduced_rank,
             self.num_iters
         )
-        # lora_L_2d is (C_out, rank_svd)
-        # lora_R_2d is (rank_svd, C_in_div_groups * kH * kW)
 
         self.register_buffer('qweight', qweight_pack_2d)
         self.register_buffer('weight_scales', weight_scales_2d)
         self.register_buffer('kernel_shape_orig_buf', torch.tensor(W_initial_4d.shape, device=compute_device))
         self.register_buffer('reshaped_2d_shape_buf', torch.tensor(W_initial_2d.shape, device=compute_device))
+        self.register_buffer('padding_elements', torch.tensor([padding_elements], dtype=torch.long))
 
 
         # lora_A.weight: (rank_A_out_total, C_in_div_groups, kH_A, kW_A)
@@ -365,11 +549,13 @@ class TrueQuantizedConv2d(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         reshaped_2d_kernel_shape = tuple(self.reshaped_2d_shape_buf.tolist())
+        padding_elements = self.padding_elements.item()
         
         dequantized_kernel_2d = self.quantizer.dequantize_block(
             self.qweight, 
             self.weight_scales, 
-            reshaped_2d_kernel_shape
+            reshaped_2d_kernel_shape,
+            padding_elements
         )
         
         original_4d_kernel_shape = tuple(self.kernel_shape_orig_buf.tolist())

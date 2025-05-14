@@ -11,9 +11,8 @@ import time
 
 # Assuming your LoftQ modules are in the current directory or accessible in PYTHONPATH
 from loftq_cnn import TrueQuantizedConv2d, compute_device
-from model_utils import convert_true_quant_conv_layer
+from model_utils import convert_true_quant_conv_layer, convert_linear_layer, estimate_model_size
 from loftq import TrueQuantizedLinear
-from model_utils import convert_linear_layer
 
 # --- 1. Define the "SimpleCNN" Model (from 5_1_cnn.py) ---
 class SimpleCNN(nn.Module):
@@ -58,7 +57,7 @@ def get_mnist_loaders(batch_size=128):
     testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2)
     return trainloader, testloader
 
-def train_model(model, trainloader, criterion, optimizer, epochs=3, device=compute_device, model_path='simple_cnn_mnist_original.pth'):
+def train_model(model, trainloader, criterion, optimizer, epochs=3, device=compute_device):
     # if os.path.exists(model_path):
     #     model.load_state_dict(torch.load(model_path, map_location=device))
     #     print(f"Loaded pre-trained original model weights from {model_path}.")
@@ -81,8 +80,7 @@ def train_model(model, trainloader, criterion, optimizer, epochs=3, device=compu
                 print(f'[Epoch {epoch + 1}, Batch {i + 1:5d}] loss: {running_loss / 100:.3f}')
                 running_loss = 0.0
     print('Finished Training')
-    torch.save(model.state_dict(), model_path)
-    print(f"Saved trained model weights to {model_path}.")
+
     return model
 
 # --- 3. Quantization Function ---
@@ -188,32 +186,35 @@ if __name__ == '__main__':
                     loftq_args = MockModelArgs(
                         int_bit=bits,
                         reduced_rank=rank, # The convert_ functions should handle if rank > layer_dim
-                        quant_method=method,
-                        num_iter=5
+                        quant_method=method
                     )
 
                     # Important: Always start from a fresh copy of the original trained model
                     model_to_quantize = SimpleCNN().to(device)
                     
-                    try:
-                        quantized_model = quantize_simple_cnn_model(
-                            model_to_quantize,
-                            loftq_args,
-                            quantize_final_fc_layer=final_quant_status,
-                        )
+                    # try:
+                    quantized_model = quantize_simple_cnn_model(
+                        model_to_quantize,
+                        loftq_args,
+                        quantize_final_fc_layer=final_quant_status,
+                    )
+                    
+                    estimate_model_size(SimpleCNN(), quantized_model)
+                    
+                    optimizer = optim.Adam(quantized_model.parameters(), lr=0.001)
 
-                        quantized_model = train_model(quantized_model, trainloader, criterion, optimizer, epochs=3, device=device, model_path=original_model_path)
-                        
-                        accuracy = evaluate_model(quantized_model, testloader, device=device)
+                    quantized_model = train_model(quantized_model, trainloader, criterion, optimizer, epochs=3, device=device)
+                    
+                    accuracy = evaluate_model(quantized_model, testloader, device=device)
                         
                         # Conceptual: Prepare for LoRA fine-tuning if needed
                         # quantized_model = prepare_for_lora_fine_tuning(quantized_model, final_layer_name='fc2_final', final_layer_quantized_with_lora=final_quant_status)
                         # Then you would train LoRA adapters and re-evaluate.
                         # For this script, we are evaluating the "post-LoftQ-initialization" accuracy.
 
-                    except Exception as e:
-                        print(f"ERROR during quantization/evaluation for {bits}-bit, rank {rank}, {method}, final_quant={final_quant_status}: {e}")
-                        accuracy = "Error" # Log error in CSV
+                    # except Exception as e:
+                    #     print(f"ERROR during quantization/evaluation for {bits}-bit, rank {rank}, {method}, final_quant={final_quant_status}: {e}")
+                    #     accuracy = "Error" # Log error in CSV
 
                     end_time = time.time()
                     time_taken = end_time - start_time
