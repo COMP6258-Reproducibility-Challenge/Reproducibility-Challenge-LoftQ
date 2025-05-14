@@ -3,6 +3,9 @@ from typing import List, Optional, Set, Tuple, Type, Union
 import os
 import logging
 
+import math
+
+import datasets
 from transformers import Trainer
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict, load_dataset, concatenate_datasets
 from peft import TaskType
@@ -12,6 +15,20 @@ from model_utils import save_quantized_model, get_model_dir
 def load_raw_dataset(dataset_name: str, task_name: str) -> Tuple[Union[DatasetDict, Dataset, IterableDatasetDict, IterableDataset], Set, int]:
     logging.warning(f"Loading raw dataset: {dataset_name} - {task_name}")
     raw_data = load_dataset(dataset_name, task_name)
+
+    # Sample dataset if too long
+    limit = 25000
+    max_len = max(len(split) for split in raw_data.values())
+    if max_len > limit:  # max_len > 40000:
+        logging.warning(f"Raw dataset is too long and has been truncated to 40000 samples")
+        percent = limit / max_len
+        sampled_data = {}
+        for split in raw_data:
+            sample_size = math.ceil(len(raw_data[split]) * percent)
+            sampled_data[split] = raw_data[split].shuffle().select(range(sample_size))
+        raw_data = datasets.DatasetDict(sampled_data)
+        # print(f"Sampled dataset: {raw_data}")
+
     if dataset_name == 'anli':
         train = concatenate_datasets([
             raw_data['train_r1'],
@@ -43,7 +60,7 @@ class LoFTQTrainer(Trainer):
         os.makedirs(output_dir, exist_ok=True)
         
         # Use custom save function
-        save_quantized_model(self.model, self.processing_class, output_dir)
+        save_quantized_model(self.model, self.tokenizer, output_dir)
     
     def _save(self, output_dir=None, state_dict=None):
         """Override _save method as well"""
@@ -51,7 +68,7 @@ class LoFTQTrainer(Trainer):
         os.makedirs(output_dir, exist_ok=True)
         
         # Use custom save function
-        save_quantized_model(self.model, output_dir)
+        save_quantized_model(self.model, self.tokenizer, output_dir)
 
 def index_dim(tensor, dim, start, block_size):
     """
