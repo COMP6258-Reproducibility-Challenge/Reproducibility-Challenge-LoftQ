@@ -41,7 +41,7 @@ class MockModelArgs:
         self.true_quantization = true_quantization
 
 # --- 2. Data Loading (CIFAR-10) ---
-def get_cifar10_loaders(train_batch_size=128, test_batch_size=100):
+def get_cifar10_loaders(accelerator, train_batch_size=128, test_batch_size=100):
     CIFAR10_MEAN = (0.4914, 0.4822, 0.4465)
     CIFAR10_STD  = (0.2470, 0.2435, 0.2616)
 
@@ -57,9 +57,22 @@ def get_cifar10_loaders(train_batch_size=128, test_batch_size=100):
         transforms.Normalize(CIFAR10_MEAN, CIFAR10_STD),
     ])
 
-    train_dataset = datasets.CIFAR10(root='data/', train=True, download=True, transform=train_transform)
-    test_dataset = datasets.CIFAR10(root='data/', train=False, download=True, transform=test_transform)
-
+    # Only download on main process
+    download = accelerator.is_main_process
+    
+    # Make sure the directory exists
+    os.makedirs('data/', exist_ok=True)
+    
+    # Download dataset (only on main process)
+    if download:
+        accelerator.print("Downloading CIFAR-10 dataset...")
+    
+    train_dataset = datasets.CIFAR10(root='data/', train=True, download=download, transform=train_transform)
+    test_dataset = datasets.CIFAR10(root='data/', train=False, download=download, transform=test_transform)
+    
+    # Make sure all processes can access the dataset after main process has downloaded it
+    accelerator.wait_for_everyone()
+    
     trainloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True, num_workers=2, pin_memory=True)
     testloader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False, num_workers=2, pin_memory=True)
     return trainloader, testloader
@@ -210,10 +223,10 @@ def main():
     # Initialize the accelerator
     accelerator = Accelerator()
     
-    # Get dataloaders
+    # Get dataloaders with accelerator reference
     train_batch_size = 16  # Adjust batch size based on your GPU memory
     test_batch_size = 100
-    trainloader, testloader = get_cifar10_loaders(train_batch_size=train_batch_size, test_batch_size=test_batch_size)
+    trainloader, testloader = get_cifar10_loaders(accelerator, train_batch_size=train_batch_size, test_batch_size=test_batch_size)
     
     accelerator.print("\n--- Loaded dataset ---")
     
@@ -240,6 +253,9 @@ def main():
         with open(csv_file_path, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(csv_headers)
+    
+    # Make sure all processes have the dataset
+    accelerator.wait_for_everyone()
 
     # Parameter Ranges for Sweep
     bits_to_test = [4, 8]
@@ -283,6 +299,9 @@ def main():
                         
                         # Prepare the model and optimizer for distributed training
                         quantized_model, optimizer = accelerator.prepare(quantized_model, optimizer)
+                        
+                        # Make sure all processes sync here
+                        accelerator.wait_for_everyone()
                         
                         # Train the quantized model
                         quantized_model = train_model(
