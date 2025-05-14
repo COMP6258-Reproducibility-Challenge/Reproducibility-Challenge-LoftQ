@@ -253,7 +253,7 @@ class BlockQuantizer:
 
         # dimension with max number of elements in B (in reverse order)
         # Number of elements in dimension max_dim_B
-        max_dim_B, max_num_B = utils.max_dim(a)
+        max_dim_B, max_num_B = utils.max_dim(b)
 
         # List that stores the argmin blocks
         result_list = []
