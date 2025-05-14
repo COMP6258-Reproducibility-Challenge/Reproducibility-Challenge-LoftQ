@@ -266,7 +266,7 @@ def main():
     # Parameter Ranges for Sweep
     bits_to_test = [4, 8]
     ranks_to_test = [16, 32]
-    quant_methods_to_test = ["uniform", "normal"]
+    quant_methods_to_test = ["uniform"]
     final_layer_quant_options = [True, False]
 
     accelerator.print("\n\n--- Starting Quantization Parameter Sweep (ResNet50 on CIFAR-10) ---")
