@@ -242,7 +242,9 @@ def main():
     
     # Optimizer and Scheduler for ResNet
     optimizer = optim.SGD(original_model_instance.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4, nesterov=True)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+    
+    # Use a simpler scheduler that doesn't require metrics
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
     
     # Prepare model, optimizer, dataloader with accelerator
     trainloader, testloader, original_model_instance, optimizer = accelerator.prepare(
@@ -298,8 +300,10 @@ def main():
                             estimate_model_size(get_resnet50_for_cifar10(), quantized_model)
 
                         # Create optimizer for quantized model
-                        optimizer = optim.SGD(quantized_model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4, nesterov=True)
-                        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+                        optimizer = optim.SGD(quantized_model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4, nesterov=True)
+                        
+                        # Use a simpler scheduler that doesn't require metrics
+                        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
                         
                         # Prepare the model and optimizer for distributed training
                         quantized_model, optimizer = accelerator.prepare(quantized_model, optimizer)
