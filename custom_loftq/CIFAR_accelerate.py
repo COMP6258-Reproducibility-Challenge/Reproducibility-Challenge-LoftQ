@@ -164,9 +164,9 @@ if __name__ == '__main__':
     quant_methods_to_test = ["uniform", "normal"] # Reduced for quicker testing
     final_layer_quant_options = [True, False] # Reduced for quicker testing
     num_train_epochs_sweep = 1 # Reduced for quicker testing
-    train_batch_size_sweep = 64
-    eval_batch_size_sweep = 128
-    learning_rate_sweep = 0.01 # SGD learning rate
+    train_batch_size_sweep = 128
+    eval_batch_size_sweep = 256
+    learning_rate_sweep = 0.1 # SGD learning rate
 
     accelerator.print(f"\n\n--- Starting Quantization Parameter Sweep (ResNet50 on CIFAR-10) with Hugging Face Trainer & Accelerate ---")
     accelerator.print(f"Running on device: {accelerator.device}")
