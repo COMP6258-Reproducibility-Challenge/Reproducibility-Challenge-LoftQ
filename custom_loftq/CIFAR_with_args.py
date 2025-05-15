@@ -276,16 +276,16 @@ def main():
         trainloader, testloader, original_model_instance, optimizer
     )
     
-    trained_model = train_model(
-        accelerator, 
-        original_model_instance, 
-        trainloader, 
-        criterion, 
-        optimizer, 
-        epochs=300,
-        model_path=f'resnet50_cifar10_original.pth',
-        scheduler=scheduler
-    )
+    # trained_model = train_model(
+    #     accelerator, 
+    #     original_model_instance, 
+    #     trainloader, 
+    #     criterion, 
+    #     optimizer, 
+    #     epochs=300,
+    #     model_path=f'resnet50_cifar10_original.pth',
+    #     scheduler=scheduler
+    # )
     
     accuracy = evaluate_model(accelerator, trained_model, testloader)
     accelerator.print(f"===========================")
