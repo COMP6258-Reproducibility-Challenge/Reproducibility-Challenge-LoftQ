@@ -287,12 +287,12 @@ def main():
     #     scheduler=scheduler
     # )
     
-    accuracy = evaluate_model(accelerator, trained_model, testloader)
-    accelerator.print(f"===========================")
-    accelerator.print(f"===========================")
-    accelerator.print(f"Accuracy: {accuracy} (Time: {time_taken:.2f}s)")
-    accelerator.print(f"===========================")
-    accelerator.print(f"===========================")
+    # accuracy = evaluate_model(accelerator, trained_model, testloader)
+    # accelerator.print(f"===========================")
+    # accelerator.print(f"===========================")
+    # accelerator.print(f"Accuracy: {accuracy} (Time: {time_taken:.2f}s)")
+    # accelerator.print(f"===========================")
+    # accelerator.print(f"===========================")
     
     # CSV setup - only write from main process
     csv_file_path = 'loftq_resnet50_cifar10_results.csv'
