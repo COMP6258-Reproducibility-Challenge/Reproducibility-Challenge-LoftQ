@@ -316,7 +316,7 @@ def main():
 
     start_time = time.time()
     accelerator.print("-" * 60)
-    accelerator.print(f"Testing: Bits={model_args.model_args.bits}, Rank={model_args.rank}, Method='{model_args.method}', FinalFCQuant={model_args.final_layer}")
+    accelerator.print(f"Testing: Bits={model_args.bits}, Rank={model_args.rank}, Method='{model_args.method}', FinalFCQuant={model_args.final_layer}")
 
     loftq_args = MockModelArgs(
         int_bit=model_args.bits,
