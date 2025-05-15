@@ -7,7 +7,7 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=cjm1n19@soton.ac.uk
 #SBATCH --time=10:00:00
-#SBATCH -o %j-CIFAR.out
+#SBATCH -o %j-CIFAR_b4_r32_normal_final.out
 
 module load conda/py3-latest
 conda activate comp6258_env
