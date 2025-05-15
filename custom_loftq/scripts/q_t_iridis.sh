@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH -p lyceum
 #SBATCH --mem=64G
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH -c 16
 #SBATCH --mail-type=ALL
@@ -13,7 +13,10 @@ module load conda/py3-latest
 conda activate comp6258_env
 
 accelerate launch \
-    --multi_gpu \
-    --num_processes 4 \
+    --num_processes 1 \
     --mixed_precision no \
-    CIFAR_uniform.py
+    CIFAR_with_args.py \
+        --bits 4 \
+        --rank 32 \
+        --method normal \
+        --final_layer
