@@ -1,5 +1,6 @@
 from functools import partial
 import logging
+import math
 import os
 from filelock import FileLock
 
@@ -16,6 +17,7 @@ from transformers import (
     Seq2SeqTrainer
 )
 from transformers.utils import is_offline_mode
+from datasets import DatasetDict
 
 from utils import LoFTQTrainer, get_trained_save_dir
 
@@ -135,27 +137,22 @@ def compute_metrics_summarization(eval_preds, tokenizer, metric):
     return result
 
 
-def create_reduced_dataset(dataset, labels, num_examples=1000, seed=42):
+def create_reduced_dataset(dataset, num_examples=25000):
     """Create a smaller subset of the dataset for quick testing."""
-    # Set seed for reproducibility
-    import numpy as np
-    np.random.seed(seed)
+    
+    # Sample dataset if too long
+    max_len = max(len(split) for split in dataset.values())
+    if max_len > num_examples:  # max_len > 40000:
+        logging.warning(f"Raw dataset is too long and has been truncated to {num_examples} samples")
+        percent = num_examples / max_len
+        sampled_data = {}
+        for split in dataset:
+            sample_size = math.ceil(len(dataset[split]) * percent)
+            sampled_data[split] = dataset[split].shuffle().select(range(sample_size))
+        raw_data = DatasetDict(sampled_data)
+        # print(f"Sampled dataset: {raw_data}")
 
-    # Get a balanced subset
-    indices = []
-    for label in labels:  # MNLI has 3 classes
-        label_indices = [i for i, l in enumerate(dataset["label"]) if l == label]
-        selected = np.random.choice(label_indices, min(num_examples // 3, len(label_indices)), replace=False)
-        indices.extend(selected)
-
-    # Shuffle the indices
-    np.random.shuffle(indices)
-
-    # Create the reduced dataset
-    reduced_dataset = dataset.select(indices)
-    print(f"Created reduced dataset with {len(reduced_dataset)} examples")
-
-    return reduced_dataset
+    return raw_data
 
 
 def preprocess_function(examples, tokenizer, prefix, text_column, summary_column, data_args, max_target_length, padding):

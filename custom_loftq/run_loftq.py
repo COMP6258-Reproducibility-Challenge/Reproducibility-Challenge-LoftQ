@@ -59,6 +59,8 @@ if __name__ == "__main__":
                 raw_data['validation'] = qa_utils.create_reduced_dataset(raw_data["validation"], num_examples=3)
             qa_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
         elif task_type == TaskType.SEQ_2_SEQ_LM:
+            if not training_args.train_small is None and training_args.train_small == True:
+                raw_data = summarisation_utils.create_reduced_dataset(raw_data, num_examples=2500)
             summarisation_utils.train(model, tokenizer, model_args, data_args, training_args, raw_data)
         elif task_type == TaskType.CAUSAL_LM:
             clm_utils.train(model, tokenizer, model_args, training_args, raw_data)

@@ -16,19 +16,6 @@ def load_raw_dataset(dataset_name: str, task_name: str) -> Tuple[Union[DatasetDi
     logging.warning(f"Loading raw dataset: {dataset_name} - {task_name}")
     raw_data = load_dataset(dataset_name, task_name)
 
-    # Sample dataset if too long
-    limit = 25000
-    max_len = max(len(split) for split in raw_data.values())
-    if max_len > limit:  # max_len > 40000:
-        logging.warning(f"Raw dataset is too long and has been truncated to 40000 samples")
-        percent = limit / max_len
-        sampled_data = {}
-        for split in raw_data:
-            sample_size = math.ceil(len(raw_data[split]) * percent)
-            sampled_data[split] = raw_data[split].shuffle().select(range(sample_size))
-        raw_data = datasets.DatasetDict(sampled_data)
-        # print(f"Sampled dataset: {raw_data}")
-
     if dataset_name == 'anli':
         train = concatenate_datasets([
             raw_data['train_r1'],
