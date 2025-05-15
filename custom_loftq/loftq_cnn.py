@@ -222,6 +222,9 @@ class TrueQuantizedConv2d(nn.Module):
 
         #Don't do the group stuff in A, just in B but also add division - also just start from the basics and slowly introduce features
         #Kernel 3x3, 1 stride, no padding
+        if self.in_channels_orig < self.reduced_rank or self.out_channels_orig < self.reduced_rank:
+             self.reduced_rank = min(self.in_channels_orig, self.out_channels_orig, self.reduced_rank)
+            
         self.lora_A = nn.Conv2d(
             in_channels=self.in_channels_orig, 
             out_channels=self.reduced_rank,
@@ -341,6 +344,9 @@ class TrueQuantizedConv2d(nn.Module):
         # lora_A.weight: (lora_A_out_channels, C_in_div_groups, kH_A, kW_A)
         # lora_A_out_channels = self.reduced_rank * self.groups_orig (which is actual_rank_for_svd)
         kH_A, kW_A = self.lora_A.kernel_size
+        print(W_initial_2d.shape)
+        print(self.lora_A.weight.shape)
+        print(actual_rank_for_svd)
         self.lora_A.weight.data = lora_R_2d.reshape(
             actual_rank_for_svd, C_in_div_groups, kH_A, kW_A
         ).to(self.lora_A.weight.dtype)
