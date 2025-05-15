@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import List, Optional, Tuple, Type, Union
+from typing import List, Optional, Tuple, Type, Union, Dict
 
 import warnings
 from transformers import (
@@ -16,10 +16,22 @@ from transformers import (
 )
 from peft import TaskType
 import torch
+import torch.nn as nn
 
-from loftq import convert_linear_layer, LoraLinearLayer, TrueQuantizedLinear, BaseLoftqLinear
+from loftq import LoraLinearLayer, TrueQuantizedLinear, BaseLoftqLinear
 
 from arguments import ModelArguments
+
+def estimate_model_size(original_model, model):
+    original_size = sum(p.numel() * p.element_size() for p in original_model.parameters()) / (1024**2)
+    print(f"Original Conv2d size: {original_size:.4f} MB")
+
+    quantized_params = sum(p.numel() * p.element_size() for p in model.parameters()) / (1024**2)
+    quantized_buffers = sum(b.numel() * b.element_size() for b in model.buffers()) / (1024**2)
+    quantized_size = quantized_params + quantized_buffers
+    print(f"Quantized Conv2d size: {quantized_size:.4f} MB")
+    print(f"Parameters: {quantized_params:.4f} MB, Buffers: {quantized_buffers:.4f} MB")
+    print(f"Compression ratio: {original_size/quantized_size:.2f}x")
 
 def pretty_print_model_args(model_args: ModelArguments):
     return f"Model name: {model_args.model_name_or_path}, Method: {model_args.quant_method}, Rank: {model_args.reduced_rank}, Bits: {model_args.int_bit}, True quantize: {model_args.true_quantization}"
@@ -395,3 +407,223 @@ def prepare_gradients(model, excluded_modules):
             param.requires_grad = False
     
     return model
+
+def convert_linear_layer(
+    model: nn.Module, 
+    quantization_bits: int = 4,
+    rank: int = 16,
+    num_iters: int = 5,
+    quantization_method: str = "uniform",
+    target_modules: List[str] = ['all-linear'],
+    excluded_modules: List[str] = ['classifier'],
+    true_quantization: bool = False  # New parameter to enable true quantization
+) -> nn.Module:
+    """
+    Convert a torch.nn.Linear layer in to a custom LoraLinearLayer including quantizing and computing the low-rank decomposition  
+    """
+    all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
+    for name, module in model.named_children():
+        
+        if any(blocked in name for blocked in excluded_modules):
+            continue
+        
+        if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
+            print(f"Converting {name} layer with {'true' if true_quantization else 'simulated'} quantization")
+            if true_quantization:
+                loftq_layer = TrueQuantizedLinear(
+                    module,
+                    quantization_bits=quantization_bits,
+                    reduced_rank=rank,
+                    num_iters=num_iters,
+                    quantization_method=quantization_method
+                )
+                
+                loftq_layer.quantize(module.weight.data.clone())
+            else:
+                loftq_layer = LoraLinearLayer(
+                    module,
+                    quantization_bits=quantization_bits,
+                    reduced_rank=rank,
+                    num_iters=num_iters,
+                    quantization_method=quantization_method
+                )
+            
+                loftq_layer.quantize()
+            
+            setattr(
+                model,
+                name,
+                loftq_layer    
+            )
+        else:
+            convert_linear_layer(
+                module,
+                quantization_bits=quantization_bits,
+                rank=rank,
+                num_iters=num_iters,
+                quantization_method=quantization_method,
+                target_modules=target_modules,
+                excluded_modules=excluded_modules,
+                true_quantization=true_quantization
+            )
+    return model
+
+
+def requantize_linear_layer(
+    model: nn.Module, 
+    target_modules: List[str] = ['all-linear'],
+    excluded_modules: List[str] = ['classifier'],
+    pre_quantized_weights: Dict = None,
+    true_quantization: bool = False
+) -> nn.Module:
+    """
+    Convert a torch.nn.Linear layer in to a custom LoraLinearLayer and reapplies precomputed quantized values and low-rank decomposition
+    """
+    all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
+    to_update = []
+    for name, module in model.named_modules():
+        print(name)
+        if any(blocked in name for blocked in excluded_modules):
+            continue
+        
+        if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
+            to_update.append((name, module))
+            print(f"Will convert {name} layer with {'true' if true_quantization else 'simulated'} quantization")
+    
+    for name, module in to_update:
+        if name not in pre_quantized_weights:
+            print(f"Warning: No precomputed weights found for {name}, skipping")
+            continue
+        
+        weights_info = pre_quantized_weights[name]
+        
+        if true_quantization:
+            if 'qweight' in weights_info and 'weight_max' in weights_info:
+                new_layer = TrueQuantizedLinear(
+                    module,
+                    quantization_bits=weights_info.get('quantization_bits', 4),
+                    reduced_rank=weights_info.get('reduced_rank', 16),
+                    quantization_method=weights_info.get('quantization_method', 'uniform')
+                )
+                
+                print(weights_info['qweight'])
+                sys.exit()
+                new_layer.register_buffer("qweight", weights_info['qweight'])
+                new_layer.register_buffer("weight_max", weights_info['weight_max'])
+                new_layer.register_buffer("weight_shape", weights_info['weight_shape'])
+            else:
+                print(f"Warning: Incomplete quantization info for {name}, cannot create TrueQuantLinearLayer")
+                continue
+        else:
+            new_layer = LoraLinearLayer(
+                module,
+                quantization_bits=weights_info.get('quantization_bits', 4),
+                reduced_rank=weights_info.get('reduced_rank', 16),
+                quantization_method=weights_info.get('quantization_method', 'uniform')
+            )
+            
+            # Set the dequantized parameters
+            if 'dequantized_weight' in weights_info:
+                new_layer.base_layer.weight.data = weights_info['dequantized_weight']
+            
+        if 'lora_A' in weights_info and 'lora_B' in weights_info:
+            new_layer.lora_A.weight.data = weights_info['lora_A']
+            new_layer.lora_B.weight.data = weights_info['lora_B']
+            
+        if new_layer.has_bias and 'bias' in weights_info:
+            new_layer.bias.data = weights_info['bias']
+                
+        # Replace the module
+        parent_name = '.'.join(name.split('.')[:-1])
+        child_name = name.split('.')[-1]
+        
+        if parent_name:
+            parent = model.get_submodule(parent_name)
+            setattr(parent, child_name, new_layer)
+        else:
+            setattr(model, child_name, new_layer)
+
+    return model
+
+def convert_true_quant_conv_layer(module: nn.Module, model_args):
+    """
+    Recursively iterates through a module and replaces nn.Conv2d layers
+    with TrueQuantizedConv2d layers.
+    """
+    for child_name, child_module in module.named_children():
+        if isinstance(child_module, nn.Conv2d):
+            # Extract parameters from the original Conv2d layer
+            in_channels = child_module.in_channels
+            out_channels = child_module.out_channels
+            kernel_size = child_module.kernel_size
+            stride = child_module.stride
+            padding = child_module.padding
+            dilation = child_module.dilation
+            groups = child_module.groups
+            bias_exists = child_module.bias is not None
+
+            # Create the TrueQuantizedConv2d layer
+            # Ensure TrueQuantizedConv2d is imported or defined
+            from loftq_cnn import TrueQuantizedConv2d # Adjust import path as needed
+
+            new_layer = TrueQuantizedConv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                bias=bias_exists,
+                quantization_bits=model_args.int_bit, # from your ModelArguments
+                reduced_rank=model_args.reduced_rank, # from your ModelArguments
+                num_iters=model_args.num_iter,       # from your ModelArguments
+                quantization_method=model_args.quant_method # from your ModelArguments
+                # Add other TrueQuantizedConv2d specific args if any from model_args
+            )
+
+            # Quantize the new layer using the weights of the original layer
+            new_layer.quantize(child_module)
+
+            # Replace the original layer with the new quantized layer
+            setattr(module, child_name, new_layer)
+            print(f"Replaced {child_name} with TrueQuantizedConv2d")
+
+        elif len(list(child_module.children())) > 0:
+            # Recursively apply to children
+            convert_true_quant_conv_layer(child_module, model_args)
+    return module
+
+def analyze_model_memory(model):
+    total_params = 0
+    quant_params = 0
+    quant_bytes = 0
+    lora_params = 0
+    other_params = 0
+    
+    for name, module in model.named_modules():
+        if isinstance(module, TrueQuantizedLinear):
+            # Quantized layer
+            if hasattr(module, 'qweight'):
+                quant_params += module.in_features * module.out_features
+                quant_bytes += module.qweight.numel() * module.qweight.element_size()
+            # LoRA adapters
+            lora_params += module.lora_A.weight.numel() + module.lora_B.weight.numel()
+        elif isinstance(module, LoraLinearLayer):
+            if hasattr(module, 'base_layer'):
+                param_count = module.base_layer.weight.numel()
+                total_params += param_count
+                other_params += param_count
+            # LoRA adapters
+            lora_params += module.lora_A.weight.numel() + module.lora_B.weight.numel()
+        elif isinstance(module, nn.Linear):
+            # Regular linear layer
+            if hasattr(module, 'weight'):
+                param_count = module.weight.numel()
+                total_params += param_count
+                other_params += param_count
+    
+    print(f"Quantized parameters: {quant_params:,} ({quant_bytes/(1024**2):.2f}MB)")
+    print(f"LoRA parameters: {lora_params:,} ({lora_params*2/(1024**2):.2f}MB)")
+    print(f"Other parameters: {other_params:,} ({other_params*2/(1024**2):.2f}MB)")
+    print(f"Total: {other_params + quant_params + lora_params:,} ({((other_params*2) + quant_bytes + (lora_params*2))/(1024**2):.2f}MB)")

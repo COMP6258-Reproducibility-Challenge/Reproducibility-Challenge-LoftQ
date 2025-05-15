@@ -12,9 +12,6 @@ elif torch.mps.is_available():
 else:
     compute_device = torch.device("cpu")
 
-
-import utils
-
 # import time
 
 class BaseLoftqLinear(nn.Module):
@@ -249,11 +246,11 @@ class BlockQuantizer:
 
         # dimension with max number of elements in A (in reverse order)
         # Number of elements in dimension max_dim_A
-        max_dim_A, max_num_A = utils.max_dim(a)
+        max_dim_A, max_num_A = max_dim(a)
 
         # dimension with max number of elements in B (in reverse order)
         # Number of elements in dimension max_dim_B
-        max_dim_B, max_num_B = utils.max_dim(b)
+        max_dim_B, max_num_B = max_dim(b)
 
         # List that stores the argmin blocks
         result_list = []
@@ -264,7 +261,7 @@ class BlockQuantizer:
             elif a.numel() == 0:
                 break
             else:
-                a_chunk = utils.index_dim(a, max_dim_A, start, block_size)
+                a_chunk = index_dim(a, max_dim_A, start, block_size)
 
             if b.numel() == 1:
                 b_chunk = b.item()
@@ -275,7 +272,7 @@ class BlockQuantizer:
             elif max_dim_B == max_dim_A and (len(b.shape) < len(a.shape) or b.shape[max_dim_A] == 1):
                 b_chunk = b
             else:
-                b_chunk = utils.index_dim(b, max_dim_B, start, block_size)
+                b_chunk = index_dim(b, max_dim_B, start, block_size)
 
             # Subtract, compute abs(), compute argmin(), and move to CPU
             temp = torch.argmin(torch.abs(a_chunk - b_chunk), dim=-1, keepdim=True).to("cpu")
@@ -372,175 +369,39 @@ class BlockQuantizer:
         weight = weight.reshape(weight_shape)
 
         return weight
-
-def convert_linear_layer(
-    model: nn.Module, 
-    quantization_bits: int = 4,
-    rank: int = 16,
-    num_iters: int = 5,
-    quantization_method: str = "uniform",
-    target_modules: List[str] = ['all-linear'],
-    excluded_modules: List[str] = ['classifier'],
-    true_quantization: bool = False  # New parameter to enable true quantization
-) -> nn.Module:
-    """
-    Convert a torch.nn.Linear layer in to a custom LoraLinearLayer including quantizing and computing the low-rank decomposition  
-    """
-    all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
-    for name, module in model.named_children():
-        
-        if any(blocked in name for blocked in excluded_modules):
-            continue
-        
-        if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
-            print(f"Converting {name} layer with {'true' if true_quantization else 'simulated'} quantization")
-            if true_quantization:
-                loftq_layer = TrueQuantizedLinear(
-                    module,
-                    quantization_bits=quantization_bits,
-                    reduced_rank=rank,
-                    num_iters=num_iters,
-                    quantization_method=quantization_method
-                )
-                
-                loftq_layer.quantize(module.weight.data.clone())
-            else:
-                loftq_layer = LoraLinearLayer(
-                    module,
-                    quantization_bits=quantization_bits,
-                    reduced_rank=rank,
-                    num_iters=num_iters,
-                    quantization_method=quantization_method
-                )
-            
-                loftq_layer.quantize()
-            
-            setattr(
-                model,
-                name,
-                loftq_layer    
-            )
-        else:
-            convert_linear_layer(
-                module,
-                quantization_bits=quantization_bits,
-                rank=rank,
-                num_iters=num_iters,
-                quantization_method=quantization_method,
-                target_modules=target_modules,
-                excluded_modules=excluded_modules,
-                true_quantization=true_quantization
-            )
-    return model
-
-
-def requantize_linear_layer(
-    model: nn.Module, 
-    target_modules: List[str] = ['all-linear'],
-    excluded_modules: List[str] = ['classifier'],
-    pre_quantized_weights: Dict = None,
-    true_quantization: bool = False
-) -> nn.Module:
-    """
-    Convert a torch.nn.Linear layer in to a custom LoraLinearLayer and reapplies precomputed quantized values and low-rank decomposition
-    """
-    all_linear = len(target_modules) == 1 and target_modules[0] == 'all-linear'
-    to_update = []
-    for name, module in model.named_modules():
-        print(name)
-        if any(blocked in name for blocked in excluded_modules):
-            continue
-        
-        if (all_linear and isinstance(module, nn.Linear)) or any(targetted in name for targetted in target_modules):
-            to_update.append((name, module))
-            print(f"Will convert {name} layer with {'true' if true_quantization else 'simulated'} quantization")
     
-    for name, module in to_update:
-        if name not in pre_quantized_weights:
-            print(f"Warning: No precomputed weights found for {name}, skipping")
-            continue
-        
-        weights_info = pre_quantized_weights[name]
-        
-        if true_quantization:
-            if 'qweight' in weights_info and 'weight_max' in weights_info:
-                new_layer = TrueQuantizedLinear(
-                    module,
-                    quantization_bits=weights_info.get('quantization_bits', 4),
-                    reduced_rank=weights_info.get('reduced_rank', 16),
-                    quantization_method=weights_info.get('quantization_method', 'uniform')
-                )
-                
-                print(weights_info['qweight'])
-                sys.exit()
-                new_layer.register_buffer("qweight", weights_info['qweight'])
-                new_layer.register_buffer("weight_max", weights_info['weight_max'])
-                new_layer.register_buffer("weight_shape", weights_info['weight_shape'])
-            else:
-                print(f"Warning: Incomplete quantization info for {name}, cannot create TrueQuantLinearLayer")
-                continue
-        else:
-            new_layer = LoraLinearLayer(
-                module,
-                quantization_bits=weights_info.get('quantization_bits', 4),
-                reduced_rank=weights_info.get('reduced_rank', 16),
-                quantization_method=weights_info.get('quantization_method', 'uniform')
-            )
-            
-            # Set the dequantized parameters
-            if 'dequantized_weight' in weights_info:
-                new_layer.base_layer.weight.data = weights_info['dequantized_weight']
-            
-        if 'lora_A' in weights_info and 'lora_B' in weights_info:
-            new_layer.lora_A.weight.data = weights_info['lora_A']
-            new_layer.lora_B.weight.data = weights_info['lora_B']
-            
-        if new_layer.has_bias and 'bias' in weights_info:
-            new_layer.bias.data = weights_info['bias']
-                
-        # Replace the module
-        parent_name = '.'.join(name.split('.')[:-1])
-        child_name = name.split('.')[-1]
-        
-        if parent_name:
-            parent = model.get_submodule(parent_name)
-            setattr(parent, child_name, new_layer)
-        else:
-            setattr(model, child_name, new_layer)
+def index_dim(tensor, dim, start, block_size):
+    """
+    Indexes the tensor along a specified dimension with a specified starting element and ending element
+    Args:
+        tensor: tensor to index
+        dim: specified dimension
+        start: start element index within the dimension
+        block_size: end element index within the dimension
 
-    return model
+    Returns:
+        a slice of the tensor along dimension dim
+    """
+    # Create slice objects for all dimensions
+    slices = [slice(None)] * tensor.dim()
 
-def analyze_model_memory(model):
-    total_params = 0
-    quant_params = 0
-    quant_bytes = 0
-    lora_params = 0
-    other_params = 0
-    
-    for name, module in model.named_modules():
-        if isinstance(module, TrueQuantizedLinear):
-            # Quantized layer
-            if hasattr(module, 'qweight'):
-                quant_params += module.in_features * module.out_features
-                quant_bytes += module.qweight.numel() * module.qweight.element_size()
-            # LoRA adapters
-            lora_params += module.lora_A.weight.numel() + module.lora_B.weight.numel()
-        elif isinstance(module, LoraLinearLayer):
-            if hasattr(module, 'base_layer'):
-                param_count = module.base_layer.weight.numel()
-                total_params += param_count
-                other_params += param_count
-            # LoRA adapters
-            lora_params += module.lora_A.weight.numel() + module.lora_B.weight.numel()
-        elif isinstance(module, nn.Linear):
-            # Regular linear layer
-            if hasattr(module, 'weight'):
-                param_count = module.weight.numel()
-                total_params += param_count
-                other_params += param_count
-    
-    print(f"Quantized parameters: {quant_params:,} ({quant_bytes/(1024**2):.2f}MB)")
-    print(f"LoRA parameters: {lora_params:,} ({lora_params*2/(1024**2):.2f}MB)")
-    print(f"Other parameters: {other_params:,} ({other_params*2/(1024**2):.2f}MB)")
-    print(f"Total: {other_params + quant_params + lora_params:,} ({((other_params*2) + quant_bytes + (lora_params*2))/(1024**2):.2f}MB)")
-    
+    # Replace the slice for dim with the desired range
+    slices[dim] = slice(start, start + block_size)
+
+    # Index the tensor
+    return tensor[tuple(slices)]
+
+
+def max_dim(m):
+    """
+    Finds the dimension with the most amount of elements in a tensor and the number of elements
+    inside that dimension inside a tuple.
+    Args:
+        m: input tensor
+
+    Returns:
+        Tuple of the form (dim, numel)
+    """
+    if m.dim() <= 1:
+        return -m.dim(), max(m.shape) if m.dim() == 1 else 0
+    return min(range(-m.dim(), -1), key=lambda d: -(m.shape[d] + 1)), max(m.shape)
